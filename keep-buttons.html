@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Operations for the agent</title>
+  <style>
+    :root { color-scheme: light; }
+    body { margin: 0; font: 15px/1.4 system-ui, sans-serif; background: #f6f4ef; color: #1c1915; }
+    .lead { margin: 0 0 14px; color: #3f3a34; }
+    header { position: sticky; top: 0; z-index: 2; background: #1c1915; color: #f6f4ef; padding: 14px 20px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+    header h1 { font-size: 16px; font-weight: 650; margin: 0; }
+    header p { margin: 0; opacity: 0.8; font-size: 13px; }
+    header .spacer { flex: 1; }
+    button.bar { background: #f4d35e; color: #1c1915; border: 0; border-radius: 8px; padding: 8px 12px; font: inherit; font-weight: 650; cursor: pointer; }
+    button.bar.ghost { background: transparent; color: #f6f4ef; border: 1px solid rgba(246,244,239,.4); }
+    main { max-width: 820px; margin: 0 auto; padding: 18px 16px 80px; }
+    section { background: #fff; border-radius: 12px; padding: 8px 16px 14px; margin: 0 0 12px; }
+    h2 { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; margin: 12px 0 8px; color: #6b645c; display: flex; justify-content: space-between; align-items: center; }
+    h2 button { font: inherit; font-size: 12px; border: 0; background: #efeae2; border-radius: 6px; padding: 3px 8px; cursor: pointer; text-transform: none; letter-spacing: 0; color: #1c1915; }
+    label.row { display: flex; gap: 10px; align-items: flex-start; padding: 6px 0; border-top: 1px solid #f0ebe3; cursor: pointer; }
+    label.row input { margin-top: 3px; width: 16px; height: 16px; }
+    label.row b { font-weight: 650; }
+    label.row span { color: #5c564e; }
+    #out { white-space: pre-wrap; font: 12px/1.45 ui-monospace, monospace; background: #fff; border-radius: 12px; padding: 12px; display: none; }
+    .advice { background: #fff; border-radius: 12px; padding: 14px 16px 6px; margin: 0 0 12px; }
+    .advice h2 { text-transform: none; letter-spacing: 0; font-size: 16px; color: #1c1915; margin: 0 0 8px; }
+    .advice h3 { font-size: 13px; margin: 14px 0 6px; }
+    .advice p, .advice li { color: #3f3a34; }
+    .advice ul { margin: 0 0 10px; padding-left: 18px; }
+    .tag { display: inline-block; margin-left: 8px; font-size: 11px; font-weight: 650; letter-spacing: 0.02em; background: #e7f6e9; color: #146c2e; border-radius: 999px; padding: 1px 7px; vertical-align: 1px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Operations the agent should do from chat</h1>
+      <p id="count">0 chosen</p>
+    </div>
+    <div class="spacer"></div>
+    <button class="bar ghost" type="button" id="none">Clear</button>
+    <button class="bar" type="button" id="copy">Copy chosen list</button>
+  </header>
+  <main>
+    <p class="lead">Each row is one thing you can do by clicking today, including the settings calendar and the timeline Month tab. Tick it if the agent should do that from a chat instruction: the instruction becomes a tool or skill, and the agent runs it, including several in one go.</p>
+    <section class="advice">
+      <h2>What should be an MCP edit</h2>
+      <p>Graph work is the guide. The agent should change the library the way those graph edits do. Zoom, angle, opening a panel, and switching Graph / Settings / Table stay clicks. The agent does not drive the camera.</p>
+      <h3>Graph — ask the agent to do these</h3>
+      <ul>
+        <li><b>Make a link</b> — Create a new link, Draw connection from here, Save into frontmatter. One <code>create_link</code> call (from, to, kind, note).</li>
+        <li><b>Make an activity set</b> — Create an activity set, Make activity set. One <code>create_set</code> call.</li>
+        <li><b>Change who is in a set</b> — Remove (set member). <code>update_set</code>.</li>
+        <li><b>Delete an activity set</b> — <code>delete_set</code>.</li>
+        <li><b>Put a set on a period</b> — Add to timeline. <code>pin</code> those materials on that date.</li>
+      </ul>
+      <h3>Ask the agent for the same kind of edit outside the graph</h3>
+      <ul>
+        <li><b>Materials</b> — Add row, Save (drawer or peek), Remove (material row), Save (facet picker), Add (class note). <code>create_material</code>, <code>update_material</code>, <code>delete_material</code>. Replace, the picture chooser, and Remove (picture) are <code>attach_sketch</code> and <code>clear_sketch</code>.</li>
+        <li><b>Polish and Summarize</b> — the agent rewrites the words, then saves with those same update calls. Summarize saves the period objective. No separate polish endpoint for each box.</li>
+        <li><b>Links</b> — Add link, Remove (link row), Unlink in the hop flyout, a hop note. <code>create_link</code>, <code>update_link</code>, <code>delete_link</code>.</li>
+        <li><b>Skills</b> — Create skill, Delete a skill or activity set, Move an activity set under a skill, − on a set path. Same set tools.</li>
+        <li><b>A period</b> — Pin. <code>save_period</code> with the activities for that date.</li>
+        <li><b>Calendar</b> — class weekdays, add or remove a grade, add / rename / delete a focus, work day, or school activity, paint a range, change a range, delete one range. <code>get_calendar</code> then <code>save_calendar</code>.</li>
+      </ul>
+      <p>Leave as clicks: Graph, Settings, Table, Clear, Cancel, Layers, Angle, the two plane buttons, Zoom, Fit, Spread, More info, Back / forward, a member name, × on a picked chip, a facet chip, the close and back buttons, Show a month, Open the period on a date, Choose the grade, export JSON.</p>
+    </section>
+    <div id="list"></div>
+  </main>
+  <main><pre id="out"></pre></main>
+  <script>
+    const groups = [
+      ["Polish", [
+        ["polish-add-name", "Polish — add-material name", "Shortens the new-row title in the box"],
+        ["polish-add-look", "Polish — add-material look", "Shortens the new-row cue in the box"],
+        ["polish-add-notes", "Polish — add-material notes", "Shortens the new-row explanation in the box"],
+        ["polish-table", "Polish — materials table cell", "Shortens that cell and saves the material"],
+        ["polish-link-form", "Polish — add-link note", "Shortens the new link note"],
+        ["polish-link-row", "Polish — links table note", "Shortens that note and saves the link"],
+        ["polish-drawer-name", "Polish — drawer name", "Shortens the title and saves it"],
+        ["polish-drawer-look", "Polish — drawer look", "Shortens the cue"],
+        ["polish-drawer-notes", "Polish — drawer notes", "Shortens the explanation"],
+        ["polish-peek-name", "Polish — peek name", "Shortens the title and saves it"],
+        ["polish-peek-look", "Polish — peek look", "Shortens the cue"],
+        ["polish-peek-notes", "Polish — peek notes", "Shortens the explanation"],
+        ["polish-graph-notes", "Polish — graph side notes", "Shortens the focused node’s explanation and saves it"],
+        ["polish-chat-name", "Polish — chat draft name", "Shortens the unsaved chat material title"],
+        ["polish-chat-look", "Polish — chat draft look", "Shortens the unsaved chat cue"],
+        ["polish-chat-notes", "Polish — chat draft notes", "Shortens the unsaved chat explanation"],
+        ["polish-chat-link", "Polish — chat draft link note", "Shortens the unsaved chat link note"],
+        ["summarize", "Summarize", "Writes the period objective from the aim and pinned activities, then saves"],
+      ]],
+      ["Top bar", [
+        ["view-graph", "Graph", "Show the knowledge graph"],
+        ["view-chat", "Chat", "Show the chat panel"],
+        ["view-settings", "Settings", "Show skills, activity sets, grades, and the settings calendar"],
+        ["view-table", "Table", "Show the materials and links tables"],
+        ["add-material-jump", "Add material", "Switch to Table and focus the new-material name"],
+      ]],
+      ["Graph", [
+        ["kg-tab-set", "Create an activity set", "Selection bar: name a set from the nodes you picked"],
+        ["kg-tab-link", "Create a new link", "Selection bar: start a connection from a picked node"],
+        ["kg-make-set", "Make activity set", "Save the named set (at least two activities)"],
+        ["kg-draw-from", "Draw connection from here", "Begin a link from the chosen source node"],
+        ["kg-clear", "Clear", "Empty the current selection"],
+        ["kg-cancel-pick", "Cancel", "Leave selection mode"],
+        ["kg-layers", "Layers", "Toggle flat draw vs layered floors"],
+        ["kg-angle", "Angle", "Arm the camera angle in layers view"],
+        ["kg-plane-one", "One plane", "Chosen sets share one floor"],
+        ["kg-plane-each", "Respective planes", "Each chosen set gets its own floor"],
+        ["kg-zoom-in", "Zoom in", "Zoom in"],
+        ["kg-zoom-out", "Zoom out", "Zoom out"],
+        ["kg-fit", "Fit", "Fit the graph"],
+        ["kg-spread", "Spread", "Push nodes apart on the floors"],
+        ["kg-more", "More info", "Open the node tip (hops and sets)"],
+        ["kg-hist", "Back / forward", "Walk the side-panel focus history"],
+        ["kg-member", "A member name", "Focus that material"],
+        ["kg-drop-member", "Remove (set member)", "Drop that material from the activity set"],
+        ["kg-set-tl", "Add to timeline", "Open the sheet to add this set to a period"],
+        ["kg-set-del", "Delete activity set", "Delete the focused set"],
+        ["kg-pick-x", "× on a picked chip", "Drop that node from the selection"],
+        ["kg-facet", "A facet chip", "Filter the graph by that skill or set"],
+        ["kg-draw-ok", "Save into frontmatter", "Save the link you just drew (kind + note)"],
+        ["kg-draw-cancel", "Cancel (draw pop)", "Close the draw pop without saving"],
+        ["kg-edge-close", "Close (edge pop)", "Close the list of links on a pair"],
+      ]],
+      ["Chat", [
+        ["chat-pic", "Picture", "Attach an image or video to the current chat draft"],
+        ["chat-send", "Send / Stop", "Send the demand, or stop the request while it runs"],
+        ["chat-retry", "Retry / Stop", "Resend the last demand, or stop while it runs"],
+        ["chat-recall", "Recall", "Restore the previous draft in this session"],
+        ["chat-save", "Save remaining ops", "Write the remaining chat ops and pins into the library"],
+        ["chat-session", "A session name", "Switch to that chat"],
+        ["chat-rename", "Session title", "Rename that chat"],
+        ["chat-session-x", "× on a session", "Delete that chat session"],
+        ["chat-new", "New session", "Start an empty chat"],
+        ["chat-stack", "A time row in the stack", "Restore that earlier draft"],
+        ["chat-op-x", "× on a draft card", "Drop that unsaved op"],
+        ["chat-continue", "Continue", "Send the clarify answers and keep the chat going"],
+        ["chat-period", "Add / change / × on a chat period", "Same period edits as the timeline, on the chat draft"],
+      ]],
+      ["Settings", [
+        ["he-create", "Create skill", "Add a top-level skill from the name field"],
+        ["he-del", "Delete a skill or activity set", "Delete it. A skill’s children become independent"],
+        ["he-move", "Move an activity set under a skill", "Drop a set onto a skill, or make it independent"],
+      ]],
+      ["Calendar", [
+        ["cal-month", "Show a month", "Previous, next, or today. Settings calendar and the timeline Month tab"],
+        ["cal-open-day", "Open the period on a date", "Click a day that already has lessons. Month tab opens the timeline. Settings calendar opens that period too"],
+        ["cal-grade", "Choose the grade", "Which grade’s class days and lessons the calendar shows"],
+        ["cal-weekday", "Set a grade’s class weekdays", "Tick or untick Mon–Sun. That grade has class on the ticked days"],
+        ["cal-add-grade", "Add a grade", "Add a grade id such as G8, with no class days yet"],
+        ["cal-remove-grade", "Remove a grade from the arrangement", "Lesson files for that grade stay on disk"],
+        ["cal-add-focus", "Add a focus label", "Name and color, then it can be painted on dates"],
+        ["cal-edit-focus", "Rename or recolor a focus", "Update the label. Ranges that use it follow the new name and color"],
+        ["cal-del-focus", "Delete a focus", "Removes the label and every date range that uses it"],
+        ["cal-add-workday", "Add a work-day label", "Name and color for a holiday or break"],
+        ["cal-edit-workday", "Rename or recolor a work day", "Update that label and the ranges that use it"],
+        ["cal-del-workday", "Delete a work day", "Removes the label and every date range that uses it"],
+        ["cal-add-school", "Add a school-activity label", "Name and color"],
+        ["cal-edit-school", "Rename or recolor a school activity", "Update that label and the ranges that use it"],
+        ["cal-del-school", "Delete a school activity", "Removes the label and every date range that uses it"],
+        ["cal-paint-focus", "Paint a focus on a date range", "Drag across days for one grade. Needs a focus label selected"],
+        ["cal-paint-workday", "Paint a work day on a date range", "Those dates drop class"],
+        ["cal-paint-school", "Paint a school activity on a date range", "Those dates drop class"],
+        ["cal-edit-range", "Change a painted range", "Select the bar, then set a new start and end"],
+        ["cal-del-range", "Delete one painted range", "× on the bar, or Delete entry. The label stays"],
+      ]],
+      ["Timeline", [
+        ["tab-timeline", "Timeline", "Day columns for the selected grade"],
+        ["tl-mode", "Display plan", "Toggle display vs edit on the timeline"],
+        ["tab-month", "Month", "Month calendar for the same grade"],
+        ["flag-slow", "too slow", "Toggle that reflection flag"],
+        ["flag-fast", "too fast", "Toggle that reflection flag"],
+        ["flag-easy", "too easy", "Toggle that reflection flag"],
+        ["flag-hard", "too hard", "Toggle that reflection flag"],
+        ["refl-save", "Save (reflection)", "Save text, flags, and next goal, then update hop difficulty"],
+        ["suggest", "Suggest next", "Ask for the next period from the last lesson"],
+        ["suggest-last", "From last lesson", "Same as Suggest next"],
+        ["suggest-goal", "From a typed goal", "Suggest from the next-goal text"],
+        ["s-accept", "accept on timeline", "Write the suggestion onto the first blank date"],
+        ["s-edit", "edit into pin", "Put the suggestion on the open period"],
+        ["s-hop", "hop", "Focus a harder hop chip on the current period"],
+        ["tl-change", "An activity name", "Open the picker to replace that activity"],
+        ["tl-remove", "× on an activity", "Remove it from the period"],
+        ["tl-add", "Add activity", "Open the material picker for this period"],
+        ["tl-add-set", "Add set", "Open the activity-set sheet for this period"],
+        ["set-add-ok", "Add N to period", "Pin the chosen set members onto the period"],
+        ["set-add-cancel", "Cancel (set sheet)", "Close that sheet"],
+        ["tl-tick-x", "× on a hop chip", "Remove that easier, harder, or alternate pick"],
+        ["open-id", "A material id chip", "Open that material’s drawer"],
+      ]],
+      ["Table, drawer, and peek", [
+        ["export", "export JSON", "Download materials, links, and foci as JSON"],
+        ["add-row", "Add row", "Create the material from the form"],
+        ["add-link", "Add link", "Create the link from the form"],
+        ["back-tl", "Back to timeline", "Leave the library table"],
+        ["del-mat", "Remove (material row)", "Delete that material and its links"],
+        ["del-link", "Remove (link row)", "Delete that link"],
+        ["open-drawer", "A material id", "Open its drawer"],
+        ["pin", "Pin", "Add or replace that activity while a period picker is open"],
+        ["facet-save", "Save (facet picker)", "Save motor skills and components on that row"],
+        ["set-path-x", "− on a set path", "Remove the material from that activity set"],
+        ["pic-replace", "Replace", "Open the picture chooser"],
+        ["pic-clear", "Remove (picture)", "Clear the sketch"],
+        ["pic-pick", "A picture in the chooser", "Attach that file"],
+        ["pic-close", "Close (picture chooser)", "Close the chooser"],
+        ["cn-add", "Add (class note)", "Add a class-note row on the drawer or peek"],
+        ["card-save", "Save (drawer or peek)", "Save look, notes, and the rest of the open card"],
+        ["card-close", "Close (drawer or peek)", "Close that panel"],
+        ["hop-back", "Back (hop flyout)", "Close the hop list"],
+        ["hop-unlink", "Unlink in the hop flyout", "Delete that hop"],
+        ["hop-note", "A hop row’s note control", "Edit that hop’s note"],
+      ]],
+    ];
+
+    const MCP_EDIT = new Set([
+      "polish-add-name", "polish-add-look", "polish-add-notes", "polish-table", "polish-link-form", "polish-link-row",
+      "polish-drawer-name", "polish-drawer-look", "polish-drawer-notes", "polish-peek-name", "polish-peek-look", "polish-peek-notes",
+      "polish-graph-notes", "polish-chat-name", "polish-chat-look", "polish-chat-notes", "polish-chat-link", "summarize",
+      "kg-tab-set", "kg-tab-link", "kg-make-set", "kg-draw-from", "kg-drop-member", "kg-set-tl", "kg-set-del", "kg-draw-ok",
+      "he-create", "he-del", "he-move",
+      "cal-weekday", "cal-add-grade", "cal-remove-grade",
+      "cal-add-focus", "cal-edit-focus", "cal-del-focus",
+      "cal-add-workday", "cal-edit-workday", "cal-del-workday",
+      "cal-add-school", "cal-edit-school", "cal-del-school",
+      "cal-paint-focus", "cal-paint-workday", "cal-paint-school", "cal-edit-range", "cal-del-range",
+      "add-row", "add-link", "del-mat", "del-link", "pin", "facet-save", "set-path-x",
+      "pic-replace", "pic-clear", "pic-pick", "cn-add", "card-save", "hop-unlink", "hop-note"
+    ]);
+    const KEY = "flag-keep-buttons-v1";
+    const saved = new Set(JSON.parse(localStorage.getItem(KEY) || "[]"));
+    const list = document.getElementById("list");
+
+    groups.forEach(([title, items]) => {
+      const sec = document.createElement("section");
+      const h = document.createElement("h2");
+      h.append(document.createTextNode(title));
+      const all = document.createElement("button");
+      all.type = "button";
+      all.textContent = "Tick group";
+      h.append(all);
+      sec.append(h);
+      const boxes = [];
+      items.forEach(([id, name, detail]) => {
+        const lab = document.createElement("label");
+        lab.className = "row";
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.dataset.id = id;
+        cb.dataset.name = name;
+        cb.checked = saved.has(id);
+        const text = document.createElement("div");
+        const b = document.createElement("b");
+        b.textContent = name;
+        const sp = document.createElement("span");
+        sp.textContent = " — " + detail;
+        text.append(b, sp);
+        if (MCP_EDIT.has(id)) {
+          const tag = document.createElement("span");
+          tag.className = "tag";
+          tag.textContent = "MCP edit";
+          text.append(tag);
+        }
+        lab.append(cb, text);
+        sec.append(lab);
+        boxes.push(cb);
+        cb.addEventListener("change", persist);
+      });
+      all.addEventListener("click", () => {
+        const on = boxes.some((b) => !b.checked);
+        boxes.forEach((b) => { b.checked = on; });
+        all.textContent = on ? "Clear group" : "Tick group";
+        persist();
+      });
+      list.append(sec);
+    });
+
+    function checked() {
+      return [...document.querySelectorAll("input[type=checkbox]")].filter((b) => b.checked);
+    }
+    function persist() {
+      const ids = checked().map((b) => b.dataset.id);
+      localStorage.setItem(KEY, JSON.stringify(ids));
+      document.getElementById("count").textContent = ids.length + " for the agent";
+      document.querySelectorAll("section").forEach((sec) => {
+        const boxes = [...sec.querySelectorAll("input")];
+        const btn = sec.querySelector("h2 button");
+        if (btn) btn.textContent = boxes.every((b) => b.checked) ? "Clear group" : "Tick group";
+      });
+    }
+    document.getElementById("none").addEventListener("click", () => {
+      document.querySelectorAll("input[type=checkbox]").forEach((b) => { b.checked = false; });
+      persist();
+    });
+    document.getElementById("copy").addEventListener("click", async () => {
+      const lines = checked().map((b) => "- " + b.dataset.name);
+      const text = lines.length ? lines.join("\n") : "(none)";
+      const out = document.getElementById("out");
+      out.style.display = "block";
+      out.textContent = text;
+      try { await navigator.clipboard.writeText(text); } catch (e) {}
+      document.getElementById("count").textContent = checked().length + " for the agent — list copied";
+    });
+    persist();
+  </script>
+</body>
+</html>

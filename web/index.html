@@ -1,0 +1,1424 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>FLAG material graph — lesson library (timeline variant)</title>
+  <!--
+    ============================================================================
+    FLAG LESSON LIBRARY — FRONTEND TEMPLATE  ·  TIMELINE VARIANT (active)
+    ============================================================================
+    This is the file the plan's "extract-html" step copies to lesson-library/web/index.html.
+    It started as a copy of lesson_library_app.html (kept for reference) and adds PANEL 5 —
+    TIMELINE plus Period.times. Panels 1–4, the api contract and the grep markers are the
+    same as the base file. localStorage key: "flag-lesson-library-timeline-v2"
+    (v2 = Period.times added; the base file uses "flag-lesson-library-v2" — never share keys).
+
+    SCREEN ORDER (desktop ≥ 900px; .shell grid areas)
+      row 1  FOCI       full width
+      rows 2–4  TIMELINE / LIBRARY / LLM  left  |  PIN  right, same column the whole way down
+                (pin is not locked to the timeline row; sticky top keeps it on screen while you scroll)
+      Phone (≤ 900px): foci → timeline → pin → library → llm, one column.
+      Panel NUMBERS below are stable ids used in comments and the FUNCTION INDEX; they are
+      not the screen order.
+
+    PANEL 5 — TIMELINE (temporal view of lessons)
+      Why:  the brief says "understanding stays scattered". Panels 1–4 show ONE period.
+            The timeline shows every saved period of a grade in date order, one column
+            per period, three lanes (Instant / Skill / Key), and classifies the step
+            between consecutive periods in each lane using the graph:
+              repeat   same node                              (grey  =)
+              harder   B is a progression of A                (orange →)
+              easier   B is a regression of A                 (blue   ←)
+              sideways B is related (tagged) / teacher-named tag   (violet ~)
+              jump     no link between A and B                (red    ✕, dashed) — "add a link?"
+            Reflection flags + text sit in the footer of each column, so "too hard" next to
+            an orange → is visible at a glance. Click a column header to load that period into PANEL 3.
+      Geometry (CSS .tl-*): horizontal scroller (.tl-scroll);
+            one .tl-col per period, 360px wide; header .tl-date 58px; each lane card .tl-cell
+            ≥ 168px tall: clock pill (.when — from Period.times[slot]), material name (.nm),
+            link note or look (.lk, 2 lines), then inline hops (.tl-hops) in THREE columns
+            Easier | Harder | Also, each a stack of full-width chips; step badge (.tl-step)
+            top-left of the card. Footer .tl-foot ≥ 76px = reflection. Dashed ghost column =
+            next planned date (click to start it). The "now" column is scrolled into view.
+      Data: api.listPeriods(grade)  → API: GET /api/periods?grade=G6 → Period[] (sorted by date)
+            STORE: read every library/periods/*-G6.md ; no new files.
+      Pure: hopKind(prevId, curId) reuses neighborsOf(); no backend logic.
+            timelineHoverGroups(id) groups neighbors into easier / harder / alternatives
+            (same graph as hopChoices). Shown INLINE on every lane card — not a hover popover.
+      Inline hops: click a chip → load that period and pinActivity() the chosen node.
+            Hover a chip (or a PANEL 3 hop, or a popover row) → the node drawer floats
+            bottom-left (#drawer.float) with neighbours / notes / sketch. Pure UI.
+      Wired by: renderTimeline() — called after loadPeriod, pinActivity, Save reflection,
+            accept, and loadGraph (links changed → step classes and hop lists may change).
+      Boot: date picker and Timeline open on today (isoLocal — never toISOString, UTC+8).
+            If today has no class, that day is still located; daily view highlights the next class.
+
+    Source brief : lesson_library_interface_brief.md
+    Data schema  : lesson_library_frontmatter.example.md (one markdown file per node)
+    Backend      : lesson-library/server/*.ts  (Node + TypeScript, see plan)
+
+    Five panels (stable numbering; see SCREEN ORDER above for placement):
+      1. FOCI      — teacher-written unit arc. The LLM never invents it.
+      2. LIBRARY   — materials table + links table + add forms + node drawer.
+                     This IS the graph, shown as readable tables.
+      3. PIN       — thin overlay for one 40-minute period: Instant / Skill / Key,
+                     each with a start/end clock (Period.times; default 08:00–08:05 /
+                     08:05–08:25 / 08:25–08:40; moving Instant's end slides Skill's start
+                     when they were chained). Each pinned node shows its regression /
+                     progression hops; hover a hop = every choice; click a choice = hop.
+      4. LLM       — reflection after class + "suggest next lesson" which reads
+                     foci + graph + layout + reflection and returns a structured
+                     suggestion the teacher accepts / edits / hops from.
+      5. TIMELINE  — all saved periods of the chosen grade in date order, three lanes,
+                     step between periods classified from the graph (see above).
+
+    HOW THE BACKEND PLUGS IN
+      Every data access goes through the `api` object at the top of the script.
+      Data access goes through web/api.ts. Each method calls the HTTP endpoint named in the ENDPOINT MAP.
+
+    AGENT GUIDE (for any AI agent or person wiring, tracing, or extending this file)
+      Markers — grep these, they are the only contract between UI and backend:
+        API:    the HTTP endpoint a function maps to (method + path + body + response)
+        STORE:  which file(s) under library/ the server reads or writes for that call
+        WIRE:   the exact line(s) to change when moving from localStorage to the server
+        SERVER: server-side module that owns the logic (server/store.ts, server/llm.ts)
+        UI:     pure rendering / interaction — no backend change needed
+      Status of this file: WIRED. api lives in web/api.ts (fetch via http()). Logic lives in web/app.ts; bundled to /app.js.
+      Plan that drives the wiring: ~/.cursor/plans/lesson_library_full_build_efd26a73.plan.md
+        Step "extract-html": copy THIS file (timeline variant) to lesson-library/web/index.html,
+        move the script block to web/app.ts (types → web/types.ts, api → web/api.ts).
+        Server must implement store.listPeriods(grade) and persist Period.times (see ENDPOINT MAP).
+      Do not rename: element ids (#materials-table, #links-table, #slots, #flags, …),
+        data-* attributes, the `api` method names, or the Link `kind` values —
+        server/store.ts and scripts/seed.ts use the same strings.
+
+    FUNCTION INDEX (script section → what it does → backend call it triggers)
+      api.listMaterials / createMaterial / updateMaterial / deleteMaterial
+                               CRUD on nodes              → /api/materials
+      api.listLinks / createLink / updateLink / deleteLink
+                               CRUD on edges              → /api/links
+      api.getFoci / saveFoci   unit arc                   → /api/foci
+      api.getPeriod / savePeriod
+                               one period's pin + reflection → /api/periods/:id
+      api.listPeriods(grade)   all periods of a grade     → /api/periods?grade=   (PANEL 5 only)
+      next-lesson suggestion lives in Cursor; the page does not call it
+      neighborsOf(id)          graph helper, easier/harder/related/tags  (pure; mirrored in server/store.ts)
+      hopChoices(id, dir)      full popover list for one hop, with soft fallbacks  (pure)
+      renderFoci               PANEL 1                    → saveFoci on click / remove / Enter
+      renderMaterials / renderLinks / fillLinkSelects
+                               PANEL 2 tables             → updateMaterial / updateLink on focusout & change,
+                                                             deleteMaterial / deleteLink on Remove,
+                                                             createMaterial / createLink from the two forms
+      openDrawer(id, asFloat)   PANEL 2 node drawer        → updateMaterial(id,{notes}) on Save explanation;
+                                                             asFloat=true when hovering timeline/pin hops (#drawer.float)
+      loadPeriod / pinActivity / renderPin
+                               PANEL 3 pin + hops + clocks  → getPeriod / savePeriod (activities stack)
+      renderReflection / renderReads
+                               PANEL 4 inputs + counters  → savePeriod (reflection) on Save reflection
+      renderSuggestion + #s-accept / #s-edit / #s-hop
+                               PANEL 4 result             → suggest, then savePeriod (accept = first blank date after this period, edit = this one)
+      hopKind(prevId, curId)   PANEL 5 step classifier    (pure; uses neighborsOf)
+      timelineHoverGroups(id)  PANEL 5 hop lists          (pure; easier / harder / alts)
+      appendTimelineHops(cell) PANEL 5 inline hop chips   UI; no API
+      renderTimeline()         PANEL 5 guard (try/catch) → renderTimelineInto(grid, grade)
+      renderTimelineInto()     PANEL 5 columns + lanes    → listPeriods(grade); click header → loadPeriod;
+                                                             click a hop chip → pinActivity on that period;
+                                                             hover [data-tl-pin] → openDrawer(id, true) (float)
+      loadGraph / boot         startup                    → listMaterials, listLinks, getFoci, getPeriod; WIRE: /api/health
+
+    ENDPOINT MAP (server)                                 STORE (disk)
+      GET    /api/materials                               library/materials/*.md (frontmatter + body)
+      POST   /api/materials                               creates library/materials/M{n}.md
+      PATCH  /api/materials/:id                           rewrites frontmatter fields / body of that file
+      DELETE /api/materials/:id                           deletes file, strips relations pointing to it
+      GET    /api/links                                   derived: relations of all files flattened
+      POST   /api/links                                   appends {id,note} under the owner's relations.<kind>
+      PATCH  /api/links/:from/:kind/:to                   edits the note (or tag name) of one relation
+      DELETE /api/links/:from/:kind/:to                   removes that one relation
+      GET    /api/foci   |  PUT /api/foci                 library/_foci.yaml
+      GET    /api/periods/:id | PUT /api/periods/:id    library/periods/<id>.md   (id = YYYY-MM-DD-G6; frontmatter includes times)
+      GET    /api/periods?grade=G6                        all library/periods/*-G6.md sorted by date  (PANEL 5)
+      POST   /api/suggest      body {periodId}            server reads the 4 stores, calls the LLM, returns Suggestion
+      POST   /api/polish       body {kind, text, context?}  look | name | note | explanation | objective → { text }
+      static /assets/library/media_library/flag football/*  library/media_library/flag football/ (aliases: /assets/media_library/, /assets/canva-sketches/, /assets/library/sketches/)
+
+    LINK SEMANTICS (must match server/store.ts)
+      row {from, kind:"regression",   to}  → from is EASIER than to    → stored in to.relations.regression   [{id:from}]
+      row {from, kind:"progression",  to}  → to   is HARDER than from   → stored in from.relations.progression [{id:to}]
+      row {from, kind:"related", tag, to}  → symmetric                  → stored in from.relations.related [{id,tag,note}]
+      A tag is a label on any kind, not its own edge.
+    ============================================================================
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <style>
+    /* ------------------------------------------------------------------------
+       DESIGN TOKENS — light, neutral surface, one green accent (turf), five
+       soft relation tints. Change colours here only; components read tokens.
+       ------------------------------------------------------------------------ */
+    :root {
+      --bg: #f5f6f8; --surface: #ffffff; --surface-2: #f8f9fb; --line: #e5e7eb; --line-strong: #d1d5db;
+      --ink: #111827; --ink-2: #374151; --mute: #6b7280; --faint: #9ca3af;
+      --accent: #15803d; --accent-ink: #14532d; --accent-soft: #ecfdf3; --accent-ring: rgba(21, 128, 61, 0.18);
+      --danger: #b91c1c; --danger-soft: #fef2f2;
+      --regress: #1d4ed8; --regress-soft: #eff6ff;
+      --progress: #c2410c; --progress-soft: #fff7ed;
+      --related: #6d28d9; --related-soft: #f5f3ff;
+      --body: #047857; --body-soft: #ecfdf5;
+      --tag: #be185d; --tag-soft: #fdf2f8;
+      --r-sm: 8px; --r-md: 12px; --r-lg: 16px;
+      --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+      --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08), 0 1px 3px rgba(16, 24, 40, 0.06);
+      --shadow-lg: 0 20px 40px rgba(16, 24, 40, 0.14), 0 4px 10px rgba(16, 24, 40, 0.08);
+      --font: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; background: var(--bg); color: var(--ink); font: 13.5px/1.5 var(--font); -webkit-font-smoothing: antialiased; }
+    ::selection { background: var(--accent-ring); }
+    * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+    *::-webkit-scrollbar { width: 8px; height: 8px; } *::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; } *::-webkit-scrollbar-track { background: transparent; }
+
+    /* ---------------- header ---------------- */
+    header { position: sticky; top: 0; z-index: 50; display: flex; align-items: center; gap: 14px; padding: 0 24px; height: 56px; background: rgba(255,255,255,0.85); backdrop-filter: saturate(180%) blur(12px); border-bottom: 1px solid var(--line); }
+    header h1 { font-size: 15px; margin: 0; font-weight: 650; letter-spacing: -0.01em; display: flex; align-items: center; gap: 10px; }
+    header h1::before { content: ""; width: 22px; height: 22px; border-radius: 7px; background: linear-gradient(135deg, #22c55e, #15803d); box-shadow: inset 0 0 0 1px rgba(255,255,255,0.4); }
+    header p { margin: 0; color: var(--mute); font-size: 12.5px; }
+    header .status { margin-left: 12px; display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); color: var(--ink-2); font-size: 11.5px; font-weight: 500; }
+    header .status::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: #f59e0b; box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
+
+    /* ---------------- shell grid ---------------- */
+    .shell { display: grid; grid-template-columns: minmax(0, 1fr); grid-template-areas: "foci" "kg" "tl" "lib"; gap: 16px; padding: 20px 24px 32px; max-width: 1680px; margin: 0 auto; }
+    .foci { grid-area: foci; }
+    .kg { grid-area: kg; }
+    .graph-wrap { grid-area: lib; }
+    .timeline { grid-area: tl; }
+    .graph-wrap, .foci, .timeline, .kg, .hyperedges { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow-sm); }
+    body.view-table .kg, body.view-hyperedges .kg { display: none; }
+    body.view-graph #library, body.view-hyperedges #library { display: none; }
+    .tl-arrange { margin: 8px 0 0; font-size: 13px; }
+    .tl-arrange summary { cursor: pointer; font-weight: 650; }
+    .tl-arrange-grade { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 8px 0; }
+    .tl-arrange-grade b { min-width: 28px; }
+    body:not(.view-hyperedges) #hyperedges { display: none; }
+    .hyperedges { grid-area: kg; padding: 18px 20px; }
+    .he-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 16px; }
+    .he-toolbar #he-search { width: min(360px, 100%); }
+    .he-create-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 0; }
+    .he-create-row input { width: min(280px, 100%); }
+    .he-block { margin: 0 0 14px; }
+    .he-block .label { margin-bottom: 8px; }
+    .he-list { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-height: 36px; padding: 4px; border-radius: var(--r-sm); border: 1px solid transparent; }
+    #he-first { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 12px; }
+    .he-skill { min-width: 0; padding: 6px 8px; border-radius: var(--r-sm); border: 1px solid transparent; }
+    .he-skill-head { display: flex; align-items: center; gap: 8px; margin: 0 0 6px; }
+    .he-skill-title { font-size: 11px; font-weight: 650; letter-spacing: 0.08em; text-transform: uppercase; color: var(--mute); margin: 0; cursor: help; }
+    .he-skill-title[data-set], .he-list [data-set] { border-bottom: 1px dotted var(--line-strong); }
+    .he-list [data-he-drag], .he-skill-title[data-set], .he-list [data-set] { cursor: pointer; }
+    .he-list [data-he-drag] { cursor: grab; }
+    .he-list .kg-facet-chip { display: inline-flex; align-items: center; gap: 2px; padding: 2px 4px 2px 8px; }
+    .he-list .kg-facet-chip .he-x { width: 16px; height: 16px; border: 0; background: transparent; border-radius: 999px; font-size: 13px; }
+    .he-skill.he-drop, #he-independent.he-drop { border-color: var(--accent); background: var(--accent-soft); }
+    .view-toggle { display: inline-flex; gap: 6px; margin-left: auto; }
+    .graph-wrap { padding: 0 20px 18px; }
+    .graph-wrap .db-head { padding-top: 18px; }
+    .foci { padding: 14px 20px; }
+    .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute); margin-bottom: 10px; }
+    .mute { color: var(--mute); }
+
+    /* ---------------- panel 1: foci chips ---------------- */
+    .foci-row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+    .focus { display: inline-flex; align-items: center; gap: 8px; padding: 7px 12px 7px 8px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); font-weight: 500; cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s, transform .1s; user-select: none; }
+    .focus:hover { border-color: var(--line-strong); background: var(--surface-2); }
+    .focus:active { transform: translateY(1px); }
+    .focus .n { display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: var(--surface-2); border: 1px solid var(--line); color: var(--mute); font-size: 11px; font-weight: 600; }
+    .focus.now { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); box-shadow: 0 0 0 3px var(--accent-ring); }
+    .focus.now .n { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .focus .x { color: var(--faint); font-size: 12px; margin-left: 2px; line-height: 1; padding: 2px; border-radius: 4px; }
+    .focus .x:hover { color: var(--danger); background: var(--danger-soft); }
+    .foci-row input { width: 220px; border-style: dashed; background: transparent; }
+
+    /* ---------------- panel 2: library ---------------- */
+    .graph-wrap { overflow: auto; max-height: min(52vh, 560px); position: relative; }
+    .db-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 14px; }
+    .db-head h2 { margin: 0 0 2px; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+    .db-head p { margin: 0; color: var(--mute); font-size: 12.5px; }
+    .forms { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; }
+    .form-card { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); padding: 14px; }
+    .form-card h3 { margin: 0 0 10px; font-size: 12.5px; font-weight: 600; color: var(--ink); }
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .form-row label { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; font-weight: 500; color: var(--mute); }
+    .form-row .wide { grid-column: 1 / -1; }
+    .combo-field { display: flex; flex-direction: column; gap: 5px; font-size: 11.5px; font-weight: 500; color: var(--mute); position: relative; z-index: 2; }
+    .mat-combo { position: relative; }
+    .mat-combo-btn { width: 100%; justify-content: space-between; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mat-combo-pop { display: none; position: fixed; z-index: 90; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 8px; }
+    .mat-combo.open .mat-combo-pop, .mat-combo-pop.open { display: block; }
+    .mat-combo-q { margin: 0 0 8px; }
+    .mat-combo-list { max-height: 220px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+    .mat-combo-opt { appearance: none; width: 100%; text-align: left; border: 0; background: transparent; padding: 7px 8px; border-radius: var(--r-sm); font: inherit; font-size: 12.5px; cursor: pointer; color: var(--ink); }
+    .mat-combo-opt:hover, .mat-combo-opt:focus { background: var(--accent-soft); color: var(--accent-ink); }
+    .mat-combo-empty { padding: 10px 8px; color: var(--faint); font-size: 12.5px; }
+    .form-actions { margin-top: 10px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .field-with-polish { display: flex; gap: 6px; align-items: stretch; position: relative; }
+    .field-with-polish input, .field-with-polish textarea, .field-with-polish h3 { flex: 1; min-width: 0; }
+    .field-with-polish h3 { margin: 0; }
+    .field-with-polish textarea { min-height: 64px; }
+    .field-with-polish .btn, .cell-polish-inner .btn { flex: 0 0 auto; padding: 4px 8px; font-size: 11.5px; }
+    .cell-polish-inner { position: relative; display: flex; align-items: flex-start; gap: 6px; min-height: 28px; }
+    .cell-polish-inner [contenteditable], .cell-polish-inner textarea.cell-text {
+      flex: 1; min-width: 0; border: 1px solid var(--line); background: var(--surface-2); border-radius: 6px; padding: 3px 8px; min-height: 4.5rem; max-height: 10rem; overflow: auto; line-height: 1.35; white-space: pre-wrap; word-break: break-word; font: inherit; font-size: 13px;
+    }
+    .cell-polish-inner [contenteditable][data-field="name"] { min-height: 28px; max-height: 4.5rem; }
+
+    table.db { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; line-height: 1.45; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; }
+    #materials-table { overflow: visible; }
+    #materials-table thead th { position: sticky; top: 0; z-index: 4; background: var(--surface-2); box-shadow: inset 0 -1px 0 var(--line); }
+    table.db caption { caption-side: top; text-align: left; padding: 0 2px 8px; color: var(--ink); font-size: 13px; font-weight: 600; }
+    table.db th { padding: 9px 12px; text-align: left; font-size: 11px; font-weight: 600; color: var(--mute); background: var(--surface-2); border-bottom: 1px solid var(--line); }
+    .th-name-row { display: flex; flex-direction: row; align-items: center; gap: 8px; flex-wrap: nowrap; white-space: nowrap; position: relative; }
+    .th-he-col { display: flex; flex-direction: column; align-items: stretch; gap: 6px; white-space: normal; font-weight: 500; letter-spacing: 0; text-transform: none; min-width: 0; max-width: 180px; }
+    .th-he-col > span { font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; font-size: 11px; color: var(--mute); }
+    .th-he-col #mat-set-filter { width: 100%; max-width: 100%; min-width: 0; }
+    #mat-set-filter .facet-select-btn { display: flex; align-items: flex-start; height: auto; min-height: 34px; white-space: normal; overflow: visible; text-overflow: unset; overflow-wrap: anywhere; word-break: break-word; line-height: 1.35; box-sizing: border-box; }
+    table.db th .th-search { display: block; width: 150px; flex: 0 0 150px; margin: 0; padding: 4px 8px; font-size: 12px; font-weight: 500; letter-spacing: 0; text-transform: none; }
+    .pick-bar { display: none; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; padding: 8px 12px; background: var(--accent-soft); border: 1px solid var(--accent); border-radius: var(--r-sm); }
+    .pick-bar.show { display: flex; }
+    .pick-bar .mute { color: var(--accent-ink); }
+    #add-pick-hint { display: none; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--accent-ink); background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: var(--r-sm); padding: 8px 12px; margin: 0 0 12px; }
+    #add-pick-hint:not([hidden]) { display: flex; }
+    table.db td { padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+    table.db tbody tr:last-child td { border-bottom: 0; }
+    table.db tbody tr { transition: background .12s; }
+    table.db td[data-peek] { cursor: pointer; }
+    table.db td[data-peek]:hover { color: var(--accent); }
+    table.db .id { font-family: var(--mono); font-size: 11.5px; color: var(--ink-2); width: 3.2em; cursor: pointer; }
+    table.db .id:hover { color: var(--accent); }
+    table.db td .id { display: inline-block; padding: 1px 6px; border-radius: 6px; background: var(--surface-2); border: 1px solid var(--line); }
+    table.db + table.db { margin-top: 20px; }
+    table.db td[contenteditable="true"] { outline: none; cursor: text; border-radius: 6px; }
+    table.db td[contenteditable="true"]:hover { box-shadow: inset 0 0 0 1px var(--line-strong); }
+    table.db td[contenteditable="true"]:focus { background: #fff; box-shadow: inset 0 0 0 2px var(--accent); }
+    table.db th select.cell { width: 100%; min-width: 0; font-size: 11px; font-weight: 600; color: var(--mute); background: var(--surface); }
+    .kind { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; padding: 2px 9px; border-radius: 999px; white-space: nowrap; }
+    .kind::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+    .k-regression { color: var(--regress); background: var(--regress-soft); }
+    .k-progression { color: var(--progress); background: var(--progress-soft); }
+    .k-related { color: var(--related); background: var(--related-soft); }
+    .k-tag { color: var(--tag); background: var(--tag-soft); }
+    .legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; color: var(--mute); font-size: 12px; }
+    .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; vertical-align: middle; }
+    .d-reg { background: var(--regress); } .d-pro { background: var(--progress); } .d-rel { background: var(--related); } .d-tag { background: var(--tag); }
+
+    /* node drawer — always a compact overlay (portaled + .float). Never stretch across the library. */
+    .drawer { display: none; background: var(--surface); border: 1px solid var(--line); border-top: 3px solid var(--accent); border-radius: var(--r-md); padding: 0; box-shadow: var(--shadow-lg); }
+    .drawer.open, .drawer.open.float { display: flex; flex-direction: column; position: fixed; width: min(400px, calc(100vw - 24px)); height: min(52vh, 480px); overflow: hidden; margin: 0; z-index: 200; left: 24px; top: 24px; }
+    .drawer-main { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px 16px 8px; }
+    .ov-resize { appearance: none; -webkit-appearance: none; flex: 0 0 auto; align-self: flex-end; width: 18px; height: 18px; margin: 0 4px 4px 0; padding: 0; border: 0; border-radius: 2px; cursor: nwse-resize; touch-action: none; background:
+      linear-gradient(135deg, transparent 0 46%, var(--line-strong) 46% 54%, transparent 54% 68%, var(--line-strong) 68% 76%, transparent 76%);
+      box-shadow: none; z-index: 2; }
+    .ov-resize:hover { filter: brightness(0.7); }
+    body.ov-resizing { cursor: nwse-resize; user-select: none; }
+    #peek-drawer.open { z-index: 218; }
+    .pic-attach #peek-img, .pic-attach #peek-img + video.pic-media { margin-top: 0; max-height: 140px; cursor: zoom-in; }
+    .pic-zoom { display: none; position: fixed; inset: 0; z-index: 400; background: rgba(15, 23, 42, 0.72); align-items: center; justify-content: center; padding: 24px; cursor: zoom-out; }
+    .pic-zoom.open { display: flex; }
+    .pic-zoom[hidden] { display: none !important; }
+    .pic-zoom img, .pic-zoom video { max-width: min(92vw, 1100px); max-height: 92vh; width: auto; height: auto; object-fit: contain; border-radius: var(--r-md); box-shadow: var(--shadow-lg); background: var(--surface); }
+    .pic-zoom-player { display: none; flex-direction: column; align-items: stretch; gap: 10px; max-width: min(92vw, 1100px); width: min(92vw, 1100px); cursor: default; }
+    .pic-zoom-player:not([hidden]) { display: flex; }
+    .pic-zoom-player video { width: 100%; max-height: calc(92vh - 52px); cursor: pointer; }
+    .pic-zoom-seek { width: 100%; height: 18px; margin: 0; cursor: pointer; accent-color: var(--accent); }
+    .drawer h3 { margin: 0 0 10px; font-size: 14px; font-weight: 650; letter-spacing: -0.01em; }
+    .peek-top { display: flex; align-items: center; gap: 8px; margin: 0 0 10px; width: 100%; min-width: 0; }
+    .peek-top h3 { margin: 0; flex: 1; min-width: 0; }
+    .peek-top .hop-fly-drag { flex: 1; min-width: 36px; }
+    #peek-top .hop-fly-drag { flex: 0 0 12px; min-width: 12px; height: 28px; border-radius: 4px; background: color-mix(in srgb, var(--mute) 28%, transparent); cursor: grab; touch-action: none; }
+    #peek-top h3 { flex: 1 1 auto; min-width: 0; width: auto; }
+    #peek-top .field-with-polish { flex: 1 1 auto; min-width: 0; align-items: center; }
+    .peek-back { appearance: none; flex: 0 0 auto; width: 28px; height: 28px; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--ink); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; }
+    .peek-back:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-ink); }
+    .drawer .nb { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 12px; overflow: visible; }
+    .drawer .nb > div { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px 10px; font-size: 12.5px; min-width: 0; position: relative; }
+    .drawer .nb b { display: block; font-size: 10.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; }
+    .drawer .nb .id { color: var(--ink-2); padding: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .drawer .nb .id:hover { color: var(--accent); }
+    .drawer img, .drawer video.pic-media { max-width: 100%; max-height: 160px; border-radius: var(--r-sm); border: 1px solid var(--line); display: block; margin-top: 10px; }
+    .drawer textarea { min-height: 64px; }
+    .pic-attach { border: 1px dashed var(--line-strong); border-radius: var(--r-sm); padding: 10px; margin: 0 0 12px; background: var(--surface-2); }
+    .pic-attach .pic-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+    .pic-attach .pic-head span { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--mute); }
+    .pic-attach .pic-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+    .pic-attach #dr-img, .pic-attach video.pic-media { margin-top: 0; max-height: 140px; cursor: zoom-in; }
+    .pic-empty { color: var(--faint); font-size: 12.5px; padding: 18px 8px; text-align: center; }
+    .pic-chooser { display: none; position: fixed; z-index: 220; width: min(420px, calc(100vw - 24px)); max-height: min(56vh, 480px); overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 12px; }
+    .pic-chooser.open { display: block; }
+    .pic-chooser .pic-chooser-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+    .pic-chooser .pic-chooser-head strong { font-size: 13px; }
+    .pic-chooser-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+    .pic-chooser-grid button { appearance: none; margin: 0; padding: 0; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); cursor: pointer; overflow: hidden; text-align: left; }
+    .pic-chooser-grid button:hover, .pic-chooser-grid button.on { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-ring); }
+    .pic-chooser-grid img, .pic-chooser-grid video { display: block; width: 100%; height: 72px; object-fit: cover; background: var(--surface); }
+    .pic-chooser-grid span { display: block; padding: 4px 6px; font-size: 10.5px; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    td.pic-cell { vertical-align: middle; }
+    td.pic-cell .pic-row { display: flex; align-items: center; gap: 8px; }
+    img.thumb, video.thumb { width: 48px; height: 36px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--surface-2); cursor: zoom-in; }
+    .thumb.empty { width: 48px; height: 36px; display: inline-flex; align-items: center; justify-content: center; border-radius: 6px; border: 1px dashed var(--line); color: var(--faint); font-size: 10px; background: var(--surface-2); }
+    label.file-btn { position: relative; overflow: hidden; }
+    label.file-btn input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
+
+    /* ---------------- period pickers (in timeline head) ---------------- */
+    .period-bar { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .period-bar input, .period-bar select { width: auto; }
+    .period-bar .mute { font-family: var(--mono); font-size: 11.5px; padding: 3px 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; }
+
+    /* ---------------- panel 4: LLM (one line; suggestion lands on the timeline) ---------------- */
+    .tl-suggest-dock #suggest-status { color: var(--mute); font-size: 12.5px; }
+    .tl-suggest-dock #suggest-status.err { color: var(--danger); }
+    .graph-wrap { z-index: 1; }
+
+    /* ---------------- controls ---------------- */
+    input, select, textarea { width: 100%; background: var(--surface); border: 1px solid var(--line-strong); color: var(--ink); border-radius: var(--r-sm); padding: 8px 10px; font: inherit; font-size: 13px; transition: border-color .15s, box-shadow .15s; }
+    input::placeholder, textarea::placeholder { color: var(--faint); }
+    input:hover, select:hover, textarea:hover { border-color: #b8bec8; }
+    input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+    select { appearance: none; -webkit-appearance: none; padding-right: 28px; background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>"); background-repeat: no-repeat; background-position: right 9px center; }
+    textarea { resize: vertical; line-height: 1.5; }
+    .btn { appearance: none; display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line-strong); background: var(--surface); color: var(--ink-2); border-radius: var(--r-sm); padding: 7px 12px; font: inherit; font-size: 12.5px; font-weight: 500; cursor: pointer; transition: background .15s, border-color .15s, color .15s, transform .1s, box-shadow .15s; box-shadow: var(--shadow-sm); }
+    .btn:hover { background: var(--surface-2); border-color: #b8bec8; }
+    .btn:active { transform: translateY(1px); box-shadow: none; }
+    .btn:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--accent-ring); }
+    .btn.solid { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.solid:hover { background: var(--accent-ink); border-color: var(--accent-ink); }
+    .btn.danger { color: var(--danger); border-color: transparent; background: transparent; box-shadow: none; }
+    .btn.danger:hover { background: var(--danger-soft); border-color: transparent; }
+    .btn.on { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+    .btn:disabled { opacity: 0.55; cursor: wait; transform: none; }
+
+    .toast { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%) translateY(8px); background: var(--ink); color: #fff; padding: 9px 14px; border-radius: 999px; font-size: 12.5px; font-weight: 500; display: none; z-index: 50; box-shadow: var(--shadow-lg); opacity: 0; transition: opacity .15s, transform .15s; }
+    .toast.show { display: block; opacity: 1; transform: translateX(-50%); }
+    [hidden] { display: none !important; }
+
+    /* ---------------- panel 5: timeline ---------------- */
+    .timeline { padding: 20px 22px 18px; min-width: 0; overflow: visible; background: var(--surface); scroll-margin-top: 56px; }
+    .tl-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 16px; position: sticky; top: 56px; z-index: 30; background: var(--surface); padding-top: 4px; padding-bottom: 10px; }
+    .tl-head h2 { margin: 0 0 4px; font-size: 16px; font-weight: 650; letter-spacing: -0.01em; }
+    .tl-head p { margin: 0; color: var(--mute); font-size: 13px; line-height: 1.45; max-width: 52em; }
+    .tl-stats { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+    .tl-stats span { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); font-size: 12px; font-weight: 500; color: var(--ink-2); }
+    #tl-panel { display: flex; flex-direction: column; min-height: 0; }
+    .tl-scroll { display: flex; flex-direction: column; overflow: auto; padding: 8px 8px 14px 0; min-height: 0; flex: 0 0 auto; }
+    .tl-scroll-split { height: 12px; cursor: ns-resize; touch-action: none; border-top: 1px dashed var(--line); flex: 0 0 12px; }
+    .tl-scroll-split:hover, body.tl-resizing .tl-scroll-split { background: color-mix(in srgb, var(--accent) 18%, transparent); }
+    .tl-grid { display: flex; flex-direction: row; align-items: stretch; gap: 28px; width: max-content; flex: 1 1 auto; min-height: 100%; height: 100%; }
+    .tl-col { display: flex; flex-direction: column; flex: 0 0 680px; width: 680px; min-width: 680px; min-height: 100%; height: 100%; overflow: visible; }
+    .tl-date { flex: 0 0 auto; min-height: 58px; display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 14px; border-radius: var(--r-sm) var(--r-sm) 0 0; border: 1px solid var(--line); border-bottom: 0; background: var(--surface-2); cursor: pointer; transition: background .12s; }
+    .tl-date:hover { background: #eef0f3; }
+    .tl-date b { font-size: 14px; font-weight: 600; order: 1; min-width: 0; }
+    .tl-date small { font-family: var(--mono); font-size: 11px; color: var(--mute); order: 3; flex: 1 0 100%; }
+    .tl-date .tl-suggest-dock { order: 2; margin-left: auto; padding: 0; flex: 0 0 auto; flex-wrap: nowrap; }
+    .tl-date .tl-obj-dock, .tl-date .tl-obj-ro { order: 4; flex: 1 0 100%; cursor: default; }
+    .tl-cell { position: relative; flex: 1 1 auto; height: auto; min-height: var(--tl-h-stack, 280px); max-height: none; min-width: 0; overflow: visible; border-left: 1px solid var(--line); border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 0; display: flex; flex-direction: column; background: var(--surface); }
+    body.tl-resizing { cursor: ns-resize; user-select: none; }
+    .tl-cell-body { flex: 1 1 0; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; padding: 12px 14px 10px 14px; display: flex; flex-direction: column; justify-content: flex-start; gap: 8px; }
+    .tl-cell .nm { font-weight: 650; font-size: 14.5px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tl-cell .nm.none { color: var(--faint); font-weight: 400; }
+    .tl-cell .when, .kg-hops.when { font-family: var(--mono); font-size: 11.5px; font-weight: 500; color: var(--accent-ink); background: var(--accent-soft); border-radius: 999px; padding: 3px 10px; width: fit-content; flex: 0 0 auto; display: inline-flex; align-items: center; gap: 4px; }
+    .tl-cell .when input[type="time"], .tl-cell .when .when-mins, .kg-hops.when .when-mins { width: auto; max-width: 7.5em; padding: 0 4px; font: inherit; font-size: 11.5px; font-family: var(--mono); font-variant-numeric: tabular-nums; background: transparent; border: 0; box-shadow: none; color: inherit; }
+    .tl-cell .when .when-mins, .kg-hops.when .when-mins { width: 4.4em; min-width: 4.4em; max-width: 4.4em; text-align: right; padding-right: 2px; box-sizing: border-box; }
+    .tl-cell .when input:focus, .kg-hops.when input:focus { outline: none; box-shadow: 0 0 0 2px var(--accent-ring); border-radius: 4px; }
+    .tl-cell .lk { font-size: 12.5px; line-height: 1.4; color: var(--mute); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .tl-acts { display: flex; flex-direction: column; gap: 0; min-width: 0; flex: 1 1 auto; min-height: 0; overflow: auto; }
+    .tl-act { min-width: 0; min-height: 168px; position: relative; display: flex; flex-direction: column; overflow: auto; padding-bottom: 0; background: var(--surface); isolation: isolate; }
+    .tl-act-explain { font-size: 12.5px; line-height: 1.4; color: var(--ink-2); white-space: pre-wrap; }
+    .tl-act-pics { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tl-act-pics img, .tl-act-pics video { width: 140px; max-width: 100%; height: auto; border-radius: var(--r-sm); border: 1px solid var(--line); cursor: zoom-in; }
+    .tl-picked-rows { display: flex; flex-direction: column; align-items: flex-start; justify-content: flex-start; gap: 4px; margin-top: 2px; width: 100%; }
+    .tl-picked-row { display: flex; flex-direction: column; flex-wrap: nowrap; gap: 6px; align-items: stretch; justify-content: flex-start; width: 100%; }
+    .tl-picked-row .lab { font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; flex: 0 0 auto; color: var(--mute); }
+    .tl-picked-row.easier .lab { color: var(--regress); }
+    .tl-picked-row.harder .lab { color: var(--progress); }
+    .tl-picked-row.alts .lab { color: var(--related); }
+    .tl-diff { margin-top: 4px; border: 1px solid var(--line); border-radius: 8px; padding: 4px 8px 8px; background: var(--surface-2); }
+    .tl-diff > summary { cursor: pointer; font-size: 11.5px; font-weight: 650; }
+    .tl-diff .tl-hops, .tl-act .tl-hops { flex: 0 1 auto; }
+    .tl-picked { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; align-items: center; }
+    .tl-picked.tl-picked-rows { align-items: flex-start; width: 100%; }
+    .tl-picked .picked-wrap { display: flex; align-items: flex-start; gap: 2px; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; font-size: 11px; font-weight: 550; padding: 6px 8px; border-radius: 8px; border: 1px solid var(--line); }
+    .tl-picked .picked-wrap + .picked-wrap { border-top-width: 1px; }
+    .tl-picked .picked { overflow: hidden; min-width: 0; flex: 1 1 auto; white-space: normal; line-height: 1.35; }
+    .tl-picked .picked-x { appearance: none; border: 0; background: transparent; color: inherit; padding: 0 6px 0 2px; font: inherit; font-size: 13px; line-height: 1; cursor: pointer; flex: 0 0 auto; border-radius: 999px; box-shadow: none; }
+    .tl-picked .picked-x:hover { background: color-mix(in srgb, currentColor 12%, transparent); }
+    .tl-picked .picked-wrap.easier { color: var(--regress); background: var(--regress-soft); border-color: color-mix(in srgb, var(--regress) 28%, var(--line)); }
+    .tl-picked .picked-wrap.harder { color: var(--progress); background: var(--progress-soft); border-color: color-mix(in srgb, var(--progress) 28%, var(--line)); }
+    .tl-picked .picked-wrap.alts { color: var(--related); background: var(--related-soft); border-color: color-mix(in srgb, var(--related) 28%, var(--line)); }
+    .tl-picked .mute { font-size: 11.5px; }
+    .hop-flyout { display: none; position: fixed; z-index: 215; flex-direction: column; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 0; overflow: hidden; }
+    .hop-flyout.open { display: flex; }
+    .hop-flyout-top { flex: 0 0 auto; padding: 8px 10px 0; margin: 0; align-items: center; }
+    .hop-flyout-top .hop-fly-drag { flex: 1; height: 12px; margin: 0; border-radius: 4px; background: color-mix(in srgb, var(--mute) 28%, transparent); cursor: grab; touch-action: none; }
+    .hop-flyout.hop-dragging, .hop-flyout.hop-dragging .hop-fly-drag,
+    #peek-drawer.hop-dragging, #peek-drawer.hop-dragging .hop-fly-drag { cursor: grabbing; }
+    .hop-flyout-body { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 4px; }
+    .hop-flyout.spread .tl-hops { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .hop-flyout.one .tl-hops { grid-template-columns: 1fr; --chip-stack: calc(7 * var(--chip-row) + 6 * var(--chip-gap)); }
+    .hop-flyout .tl-hop-q, .hop-flyout .tl-hop-tag { margin: 0; flex: 0 0 auto; }
+    .hop-flyout .tl-hops { flex: 1 1 auto; min-height: 0; margin-top: 0; overflow: hidden; position: relative; z-index: 1; }
+    .hop-flyout .tl-hop-lib { flex: 0 1 auto; max-height: 42%; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 8px; position: relative; z-index: 2; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 8px; }
+    .hop-flyout .tl-hop-lib[hidden] { display: none !important; }
+    .hop-flyout .tl-hop-lib-lab { font-size: 10.5px; font-weight: 650; letter-spacing: 0.07em; text-transform: uppercase; color: var(--mute); }
+    .hop-flyout .tl-hop-lib .chips { display: flex; flex-direction: column; gap: var(--chip-gap, 6px); min-height: 0; }
+    .hop-flyout .tl-hop-lib .chip-row { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 4px; min-width: 0; height: 36px; }
+    .hop-flyout .tl-hop-lib .chip-row .chip { flex: 1 1 auto; width: auto; min-width: 0; }
+    .hop-flyout .tl-hop-lib .chip-x { appearance: none; flex: 0 0 28px; width: 28px; height: 36px; min-height: 36px; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--mute); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; padding: 0; }
+    .hop-flyout .tl-hop-lib .chip-x:hover { color: var(--regress); border-color: var(--regress); background: var(--regress-soft); }
+    .hop-flyout .tl-hop-lib .chip { appearance: none; display: block; width: 100%; height: 36px; min-height: 36px; box-sizing: border-box; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; text-align: left; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .hop-flyout .tl-hop-lib .chip:hover { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+    .hop-flyout .tl-hop-note { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+    .hop-flyout .tl-hop-note-row { display: flex; gap: 6px; align-items: center; }
+    .hop-flyout .tl-hop-note-row input { flex: 1 1 auto; min-width: 0; margin: 0; }
+    .hop-flyout.set-members .hop-flyout-body { overflow: auto; padding: 10px; }
+    .hop-flyout.set-members .hop-flyout-body > .mute { flex: 0 0 auto; margin: 0; width: 100%; }
+    .hop-flyout.set-members .tl-hop-lib { flex: 1 1 auto; max-height: none; width: 100%; min-width: 0; box-sizing: border-box; margin: 0; border: 0; padding: 0; background: transparent; gap: 6px; }
+    .hop-flyout .tl-hop-lib .empty { font-size: 12px; color: var(--faint); min-height: 0; }
+    .tl-act + .tl-act { padding-top: 0; margin-top: 0; border-top: 0; }
+    .tl-act-split { position: sticky; bottom: 0; z-index: 4; flex: 0 0 10px; height: 10px; min-height: 10px; margin-top: auto; cursor: ns-resize; touch-action: none; border-top: 1px solid var(--line); background: var(--surface); box-shadow: 0 -16px 0 var(--surface); }
+    .tl-foot-split { position: absolute; top: 0; left: 0; right: 0; z-index: 4; flex: 0 0 10px; height: 10px; min-height: 10px; margin: 0; cursor: ns-resize; touch-action: none; border: 0; border-bottom: 1px solid var(--line); background: transparent; }
+    .tl-act-split:hover, .tl-foot-split:hover, body.tl-resizing .tl-act-split, body.tl-resizing .tl-foot-split { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); }
+    .tl-act-head { display: flex; align-items: flex-end; gap: 8px; }
+    .tl-act-head .nm { flex: 1; min-width: 0; cursor: default; line-height: 24px; }
+    .tl-act-dur-u { font-size: 11px; color: var(--mute); flex: 0 0 auto; line-height: 24px; white-space: nowrap; }
+    .tl-act-head .btn { height: 24px; min-height: 24px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; flex: 0 0 auto; box-shadow: none; }
+    .tl-act-x { font-size: 14px; line-height: 1; }
+    .tl-act-change { font-size: 12px; }
+    .tl-hop-q, .tl-hop-tag { width: 100%; margin: 6px 0 8px; padding: 5px 8px; font-size: 12px; }
+    .tl-add-row { margin-top: auto; flex: 0 0 auto; padding-top: 4px; }
+    .tl-add-row .btn { width: 100%; justify-content: flex-start; }
+    .tl-hops .chip.on { box-shadow: inset 0 0 0 2px var(--accent); font-weight: 650; }
+    .tl-hops .chip.on::before { content: "✓ "; }
+    .tl-hops { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 8px; flex: 1 1 auto; width: 100%; min-width: 0; max-width: 100%; overflow: visible; --chip-row: 56px; --chip-gap: 8px; --chip-stack: calc(3 * var(--chip-row) + 2 * var(--chip-gap)); }
+    .tl-hops .grp { min-width: 0; max-width: 100%; overflow: hidden; display: flex; flex-direction: column; }
+    .tl-hops .grp-head { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; min-width: 0; }
+    .tl-hops .grp-head p { margin: 0; flex: 0 0 auto; max-width: 58%; font-size: 10.5px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.07em; color: var(--mute); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tl-hops .grp-head .tl-hop-col-q { flex: 1 1 auto; min-width: 0; width: auto; margin: 0; padding: 3px 7px; font-size: 11px; }
+    .tl-hops .grp.easier p { color: var(--regress); }
+    .tl-hops .grp.harder p { color: var(--progress); }
+    .tl-hops .grp.alts p { color: var(--related); }
+    .tl-hops .chips { display: flex; flex-direction: column; align-items: stretch; gap: var(--chip-gap); min-height: var(--chip-stack); max-height: none; min-width: 0; overflow-x: hidden; overflow-y: auto; }
+    .tl-hops .chip-row { display: flex; flex-wrap: nowrap; align-items: stretch; gap: 4px; min-width: 0; height: auto; min-height: var(--chip-row); flex: 0 0 auto; }
+    .tl-hops .chip-row .chip { flex: 1 1 auto; width: auto; }
+    .tl-hops .chip-x { appearance: none; flex: 0 0 28px; width: 28px; height: auto; min-height: var(--chip-row); align-self: stretch; box-sizing: border-box; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); color: var(--mute); font: inherit; font-size: 16px; line-height: 1; cursor: pointer; padding: 0; }
+    .tl-hops .chip-x:hover { color: var(--regress); border-color: var(--regress); background: var(--regress-soft); }
+    .tl-hops .chip { appearance: none; display: block; width: 100%; max-width: 100%; min-width: 0; height: auto; min-height: var(--chip-row); flex: 0 0 auto; box-sizing: border-box; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); border-radius: 8px; padding: 8px 10px; font: inherit; font-size: 12px; font-weight: 500; cursor: pointer; line-height: 1.35; text-align: left; white-space: normal; overflow: visible; }
+    .tl-hops .chip:hover { background: var(--accent-soft); color: var(--accent-ink); border-color: var(--accent); }
+    .tl-hops .chip.easier { background: var(--regress-soft); border-color: color-mix(in srgb, var(--regress) 28%, var(--line)); color: var(--regress); }
+    .tl-hops .chip.harder { background: var(--progress-soft); border-color: color-mix(in srgb, var(--progress) 28%, var(--line)); color: var(--progress); }
+    .tl-hops .chip.alts { background: var(--related-soft); border-color: color-mix(in srgb, var(--related) 28%, var(--line)); color: var(--related); }
+    .tl-hops .empty { font-size: 12px; color: var(--faint); line-height: 1.4; min-height: var(--chip-stack); overflow: hidden; }
+    .tl-step { position: absolute; left: -26px; top: 14px; transform: none; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 12px; font-weight: 700; background: var(--surface); border: 1.5px solid var(--line-strong); color: var(--mute); z-index: 1; }
+    .tl-step.repeat { color: var(--mute); }
+    .tl-step.harder { color: var(--progress); border-color: var(--progress); background: var(--progress-soft); }
+    .tl-step.easier { color: var(--regress); border-color: var(--regress); background: var(--regress-soft); }
+    .tl-step.sideways { color: var(--related); border-color: var(--related); background: var(--related-soft); }
+    .tl-step.jump { color: var(--danger); border-color: var(--danger); background: var(--danger-soft); border-style: dashed; }
+    .tl-step.start { display: none; }
+    .tl-foot { flex: 0 0 var(--tl-h-foot, 210px); height: var(--tl-h-foot, 210px); min-height: 76px; max-height: var(--tl-h-foot, 210px); position: relative; z-index: 2; border: 1px solid var(--line); border-top: 1px solid var(--line); border-radius: 0 0 var(--r-sm) var(--r-sm); padding: 12px 14px 0; background: var(--surface-2); font-size: 12.5px; color: var(--mute); display: flex; flex-direction: column; gap: 6px; overflow: hidden; }
+    .tl-col.now .tl-foot { background: var(--accent-soft); }
+    .tl-col.nearest .tl-date { background: var(--accent-soft); border-color: var(--accent); }
+    .tl-refl-dock { display: flex; flex-direction: column; gap: 8px; flex: 1 1 auto; min-height: 0; overflow: auto; }
+    .tl-refl-dock .refl-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+    .tl-refl-dock .label { margin: 0; }
+    .tl-refl-dock .refl-when { font-size: 12.5px; font-weight: 650; color: var(--ink); }
+    .tl-refl-dock .flags { display: flex; flex-direction: row; gap: 6px; flex-wrap: nowrap; margin: 0; align-items: stretch; }
+    .tl-refl-dock .flags .btn { padding: 6px 8px; font-size: 11.5px; flex: 1 1 0; width: auto; min-width: 0; justify-content: center; white-space: nowrap; }
+    .tl-refl-dock #refl-text, .tl-refl-dock #next-goal { width: 100%; font-size: 12.5px; padding: 6px 8px; }
+    .tl-refl-dock #next-goal { min-height: 44px; resize: vertical; }
+    .tl-refl-dock .refl-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .tl-foot .fl { display: flex; flex-direction: row; gap: 6px; flex-wrap: nowrap; align-items: stretch; }
+    .tl-foot .fl span { padding: 6px 8px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); font-weight: 500; color: var(--ink-2); flex: 1 1 0; min-width: 0; width: auto; box-sizing: border-box; text-align: center; white-space: nowrap; }
+    .tl-foot .fl span.hard { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); }
+    .tl-foot .fl span.easy { color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 40%, var(--line)); }
+    .tl-foot .tx { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; line-height: 1.4; }
+    .tl-col.now .tl-date { background: var(--accent-soft); border-color: var(--accent); }
+    .tl-col.now .tl-cell { border-color: var(--accent); }
+    .tl-col.now .tl-foot { border-color: var(--accent); }
+    .tl-col.ai { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: var(--r-md); box-shadow: 0 0 0 6px var(--accent-ring); }
+    .tl-col.ai .tl-date { background: var(--accent-soft); border-color: var(--accent); border-style: solid; }
+    .tl-col.ai .tl-cell, .tl-col.ai .tl-foot { border-color: var(--accent); border-style: solid; background: #f7fdf9; }
+    .tl-ai { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; border-radius: 6px; background: var(--accent); color: #fff; font-size: 12px; font-weight: 700; margin-right: 6px; }
+    .tl-col.ai .tl-foot .tx { -webkit-line-clamp: 4; }
+    .tl-suggest-dock { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .suggest-split { display: inline-flex; align-items: stretch; }
+    .suggest-split #suggest { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+    #suggest-menu { position: relative; }
+    #suggest-menu > summary { list-style: none; appearance: none; height: 100%; min-width: 32px; padding: 0 8px; border: 1px solid var(--accent); border-left: 0; border-radius: 0 var(--r-sm) var(--r-sm) 0; background: var(--accent); color: #fff; cursor: pointer; display: grid; place-items: center; font-size: 12px; }
+    #suggest-menu > summary::-webkit-details-marker { display: none; }
+    #suggest-menu .suggest-opts { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; display: flex; flex-direction: column; min-width: 180px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-sm); box-shadow: var(--shadow-lg); padding: 4px; }
+    #suggest-menu .suggest-opts .btn { justify-content: flex-start; width: 100%; box-shadow: none; }
+    .tl-obj-dock { display: flex; flex-direction: column; gap: 4px; }
+    .tl-obj-dock .obj-lab { font-size: 11px; font-weight: 650; color: var(--ink); }
+    .tl-obj-dock textarea { width: 100%; min-height: 88px; font-size: 12.5px; }
+    .tl-obj-dock .obj-row { display: flex; align-items: center; gap: 6px; }
+    .tl-obj-ro { font-size: 12.5px; line-height: 1.4; color: var(--ink-2); }
+    .tl-col.blank .tl-date, .tl-col.ghost .tl-date { background: #f7fdf9; border-style: dashed; }
+    .tl-col.ghost .tl-date, .tl-col.ghost .tl-cell, .tl-col.ghost .tl-foot, .tl-col.blank .tl-cell, .tl-col.blank .tl-foot { border-style: dashed; }
+    .tl-col.ghost .tl-date { cursor: pointer; }
+    .tl-legend { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 14px; color: var(--mute); font-size: 12.5px; align-items: center; }
+    .tl-legend .tl-step { position: static; transform: none; display: inline-grid; width: 20px; height: 20px; font-size: 11px; margin-right: 4px; vertical-align: middle; }
+    .tl-empty { padding: 32px; text-align: center; color: var(--mute); border: 1px dashed var(--line); border-radius: var(--r-md); min-width: 320px; }
+
+    .sched-tabs { display: flex; gap: 6px; flex: 1 0 100%; align-items: center; }
+    .sched-tabs [role="tab"] { border-radius: 999px; }
+    .sched-split { display: inline-flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+    .sched-split .btn { border: 0; border-radius: 0; box-shadow: none; }
+    .sched-split .btn + .btn { border-left: 1px solid var(--line); }
+    .sched-split #tl-mode { width: 36px; min-width: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; }
+    .sched-split #tl-mode svg { display: block; }
+    .sched-split #tab-timeline { border-radius: 0; }
+    .class-notes-acc { margin: 10px 0 0; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 10px; background: var(--surface-2); }
+    .class-notes-acc > summary, .class-note-day > summary, .tl-class-note > summary { cursor: pointer; font-size: 11.5px; font-weight: 650; }
+    .class-note-day { margin: 8px 0; }
+    .class-notes-add { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: 8px; }
+    .class-notes-acc textarea, .tl-class-note textarea { min-height: 56px; width: 100%; margin-top: 0; }
+    .tl-class-note { margin-top: 8px; border: 1px dashed var(--line); border-radius: var(--r-sm); padding: 6px 8px; }
+    .tl-class-note .lab { display: none; }
+    .tl-grid.tl-display { display: block; width: 100%; max-width: none; flex: 0 0 auto; min-height: 0; height: auto; }
+    .tl-scroll:has(.tl-display) { overflow: auto; }
+    .tl-doc { display: flex; flex-direction: column; gap: 28px; padding: 8px 0 32px; }
+    .tl-doc-page { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); padding: 22px 28px 28px; }
+    .tl-doc-page.today { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+    .tl-doc-page.nearest { border-color: var(--accent); background: color-mix(in srgb, var(--accent-soft) 70%, var(--surface)); }
+    .tl-doc-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 12px; margin-bottom: 8px; }
+    .tl-doc-head h3 { margin: 0; font-size: 16px; }
+    .tl-doc-legend { font-size: 12px; color: var(--mute); margin: 0 0 16px; }
+    .tl-doc-slot { margin-top: 16px; }
+    .tl-doc-slot + .tl-doc-slot { border-top: 1px solid var(--line); padding-top: 16px; }
+    .tl-doc-slot h4 { margin: 0 0 10px; font-size: 13px; text-transform: none; }
+    .tl-doc .nm.none { color: var(--faint); font-weight: 400; padding: 8px 0; }
+    .tl-diff-spine { display: grid; gap: 8px; align-items: start; transition: grid-template-columns 0.2s ease; }
+    .tl-diff-spine.both { grid-template-columns: minmax(0,1fr) 40px minmax(0,1.7fr) 40px minmax(0,1fr); }
+    .tl-diff-spine.left-only { grid-template-columns: minmax(0,1fr) 40px minmax(0,1.7fr); }
+    .tl-diff-spine.right-only { grid-template-columns: minmax(0,1.7fr) 40px minmax(0,1fr); }
+    .tl-diff-spine.today-only { grid-template-columns: minmax(0,1fr); }
+    .tl-diff-spine.both:has(.tl-hop-col.easier:hover) { grid-template-columns: minmax(0,1.7fr) 40px minmax(0,1fr) 40px minmax(0,1fr); }
+    .tl-diff-spine.both:has(.tl-hop-col.harder:hover) { grid-template-columns: minmax(0,1fr) 40px minmax(0,1fr) 40px minmax(0,1.7fr); }
+    .tl-diff-spine.left-only:has(.tl-hop-col.easier:hover) { grid-template-columns: minmax(0,1.7fr) 40px minmax(0,1fr); }
+    .tl-diff-spine.right-only:has(.tl-hop-col.harder:hover) { grid-template-columns: minmax(0,1fr) 40px minmax(0,1.7fr); }
+    @media (hover: none) {
+      .tl-diff-spine.both:has(.tl-hop-col.easier:focus-within),
+      .tl-diff-spine.both:has(.tl-hop-col.easier.tl-wide) { grid-template-columns: minmax(0,1.7fr) 40px minmax(0,1fr) 40px minmax(0,1fr); }
+      .tl-diff-spine.both:has(.tl-hop-col.harder:focus-within),
+      .tl-diff-spine.both:has(.tl-hop-col.harder.tl-wide) { grid-template-columns: minmax(0,1fr) 40px minmax(0,1fr) 40px minmax(0,1.7fr); }
+      .tl-diff-spine.left-only:has(.tl-hop-col.easier:focus-within),
+      .tl-diff-spine.left-only:has(.tl-hop-col.easier.tl-wide) { grid-template-columns: minmax(0,1.7fr) 40px minmax(0,1fr); }
+      .tl-diff-spine.right-only:has(.tl-hop-col.harder:focus-within),
+      .tl-diff-spine.right-only:has(.tl-hop-col.harder.tl-wide) { grid-template-columns: minmax(0,1fr) 40px minmax(0,1.7fr); }
+    }
+    .tl-spine-arrow { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 80px; font-weight: 650; color: var(--accent); text-align: center; line-height: 1.15; }
+    .tl-spine-leap { font-variant-numeric: tabular-nums; font-size: 11px; font-weight: 700; }
+    .tl-today { border: 1px solid var(--line); border-radius: var(--r-sm); padding: 12px; background: var(--surface-2); min-width: 0; }
+    .tl-doc-obj { margin: 6px 0 0; font-size: 13px; line-height: 1.4; }
+    .tl-today-pic { width: 180px; max-width: 100%; height: auto; border-radius: var(--r-sm); border: 1px solid var(--line); cursor: zoom-in; }
+    .tl-today-body { display: flex; flex-direction: column; gap: 8px; }
+    .tl-today-pics { display: flex; flex-wrap: wrap; gap: 8px; }
+    .tl-today-explain { white-space: pre-wrap; font-size: 13px; line-height: 1.45; }
+    .tl-today-note { border-left: 3px solid var(--accent); padding: 6px 10px; margin-top: 2px; font-size: 12.5px; }
+    .tl-hop-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; cursor: pointer; outline: none; }
+    .tl-hop-col:focus-visible { box-shadow: 0 0 0 2px var(--accent-ring); border-radius: 8px; }
+    .tl-hop-col > b { font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .tl-hop-card { display: flex; flex-direction: column; gap: 6px; align-items: stretch; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 8px; min-width: 0; }
+    .tl-hop-card img, .tl-hop-card video { width: 100%; max-width: 140px; height: auto; object-fit: contain; border-radius: 4px; border: 1px solid var(--line); cursor: zoom-in; }
+    .tl-hop-card .nm { font-size: 12.5px; font-weight: 650; }
+    .tl-hop-note-line { font-size: 11.5px; color: var(--mute); font-style: italic; }
+    .tl-hop-explain { font-size: 12px; line-height: 1.35; white-space: pre-wrap; }
+    .tl-hop-col:hover .tl-hop-card { padding: 12px; background: var(--surface-2); border-radius: var(--r-sm); }
+    .tl-hop-col:hover .tl-hop-card img, .tl-hop-col:hover .tl-hop-card video { max-width: 180px; }
+    .tl-hop-col:hover .tl-hop-explain { font-size: 13px; line-height: 1.45; }
+    @media (hover: none) {
+      .tl-hop-col:focus-within .tl-hop-card,
+      .tl-hop-col.tl-wide .tl-hop-card { padding: 12px; background: var(--surface-2); border-radius: var(--r-sm); }
+      .tl-hop-col:focus-within .tl-hop-card img,
+      .tl-hop-col:focus-within .tl-hop-card video,
+      .tl-hop-col.tl-wide .tl-hop-card img,
+      .tl-hop-col.tl-wide .tl-hop-card video { max-width: 180px; }
+      .tl-hop-col:focus-within .tl-hop-explain,
+      .tl-hop-col.tl-wide .tl-hop-explain { font-size: 13px; line-height: 1.45; }
+    }
+    @media (max-width: 720px) {
+      .tl-diff-spine.both, .tl-diff-spine.left-only, .tl-diff-spine.right-only { grid-template-columns: 1fr; }
+      .tl-spine-arrow { min-height: 0; transform: rotate(90deg); }
+    }
+    @media print {
+      .tl-head, .tl-legend, .kg-legend, .period-bar, .drawer, #toast { display: none !important; }
+      .tl-scroll { overflow: visible; min-height: 0; }
+      .tl-doc-page { break-inside: avoid; border: 0; }
+    }
+    .cal-toolbar { display: flex; flex-wrap: nowrap; gap: 8px 12px; align-items: center; justify-content: space-between; margin: 4px 0 6px; }
+    .cal-modes { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 auto; min-width: 0; }
+    .cal-month-nav { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; margin-left: 0; }
+    .cal-month-nav strong { min-width: 10em; text-align: center; font-size: 15px; }
+    .cal-palette { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 10px; }
+    .cal-palette[hidden] { display: none !important; }
+    .cal-editor[hidden] { display: none !important; }
+    .cal-palette input[type="text"] { width: min(220px, 100%); }
+    .cal-palette input[type="color"], .cal-editor input[type="color"] { width: 40px; min-width: 40px; max-width: 40px; height: 32px; padding: 2px; cursor: pointer; }
+    .cal-swatch { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 10px 4px 6px; cursor: pointer; font: inherit; font-size: 12.5px; }
+    .cal-swatch.on { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-ring); }
+    .cal-swatch i { width: 12px; height: 12px; border-radius: 50%; display: inline-block; }
+    .cal-tag-x { color: var(--faint); font-size: 12px; line-height: 1; padding: 0 2px; border-radius: 4px; flex: 0 0 auto; }
+    .cal-tag-x:hover { color: var(--danger); background: var(--danger-soft); }
+    .cal-bar .cal-tag-x, .cal-marker .cal-tag-x { color: rgba(255,255,255,0.75); }
+    .cal-bar .cal-tag-x:hover, .cal-marker .cal-tag-x:hover { color: #fff; background: rgba(0,0,0,0.25); }
+    .cal-error { color: var(--danger); background: var(--danger-soft); border-radius: var(--r-sm); padding: 8px 10px; margin: 0 0 10px; }
+    .cal-weekdays { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; margin-bottom: 4px; color: var(--mute); font-size: 11.5px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; }
+    .cal-weekdays span { padding: 4px 8px; }
+    .cal-grid { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+    .cal-week { position: relative; height: 124px; min-width: 0; }
+    .cal-week-days { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: 124px; height: 124px; gap: 4px; min-width: 0; }
+    .cal-lanes { position: absolute; left: 0; right: 0; bottom: 0; height: 36px; max-height: 36px; overflow-x: hidden; overflow-y: auto; pointer-events: none; z-index: 2; }
+    .cal-day { min-width: 0; height: 124px; max-height: 124px; border: 1px solid var(--line); border-radius: var(--r-sm); background: var(--surface-2); padding: 6px 8px 40px; position: relative; overflow: hidden; display: flex; flex-direction: column; touch-action: pan-y; }
+    .cal-day.out { color: var(--faint); background: #fafafa; }
+    .cal-day.in-range { background: var(--accent-soft); }
+    .cal-day.class-day { box-shadow: inset 0 0 0 2px var(--accent-ring); }
+    .cal-day.cal-off { background: #f3f4f6; color: var(--mute); }
+    .calendar.cal-readonly .cal-modes,
+    .calendar.cal-readonly .cal-palette,
+    .calendar.cal-readonly .cal-editor { display: none !important; }
+    .cal-day .num { font-weight: 600; font-size: 13px; flex: 0 0 auto; }
+    .cal-day-stack { flex: 1 1 auto; min-height: 0; min-width: 0; margin-top: 4px; overflow-x: hidden; overflow-y: auto; overscroll-behavior-y: contain; }
+    .cal-lessons { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .cal-lesson { font-size: 10.5px; line-height: 1.25; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 1px 5px; border-radius: 4px; border: 1px solid var(--line); }
+    .cal-lesson.slot-instant { color: #0369a1; background: #e0f2fe; border-color: #7dd3fc; }
+    .cal-lesson.slot-skill { color: #047857; background: #d1fae5; border-color: #6ee7b7; }
+    .cal-lesson.slot-key { color: #5b21b6; background: #ede9fe; border-color: #c4b5fd; }
+    .cal-markers { display: flex; flex-direction: column; gap: 2px; margin-top: 2px; }
+    .cal-marker { display: flex; align-items: center; gap: 4px; font-size: 10.5px; background: #111827; color: #fff; border-radius: 4px; padding: 1px 5px; cursor: pointer; border: 0; text-align: left; max-width: 100%; }
+    .cal-bar { position: absolute; display: flex; align-items: center; gap: 4px; height: 16px; border-radius: 4px; color: #fff; font-size: 10.5px; line-height: 16px; padding: 0 6px; overflow: hidden; cursor: pointer; pointer-events: auto; border: 0; text-align: left; }
+    .cal-bar-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cal-bar.preview { opacity: 0.7; }
+    .cal-editor { display: flex; flex-wrap: wrap; gap: 8px; align-items: end; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+    .cal-editor label { display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--mute); min-width: 140px; }
+    @media (max-width: 720px) {
+      .cal-week, .cal-week-days, .cal-day { height: 108px; }
+      .cal-week-days { grid-template-rows: 108px; }
+      .cal-day { max-height: 108px; padding: 4px 4px 36px; }
+      .cal-bar { font-size: 9px; }
+      .cal-lesson { font-size: 9.5px; padding: 0 4px; }
+    }
+
+    /* ---------------- knowledge graph ---------------- */
+    .kg { padding: 14px 16px 12px; display: flex; flex-direction: column; min-height: min(117vh, 1230px); max-height: min(117vh, 1230px); }
+    .kg-toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; position: relative; }
+    .kg-toolbar > .btn, .kg-toolbar > .kg-check { position: relative; z-index: 2; }
+    .kg-toolbar #kg-search { width: min(360px, 100%); }
+    .kg-hits { display: none; position: fixed; z-index: 96; max-height: 320px; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 6px; flex-direction: column; gap: 8px; }
+    .kg-hits:not([hidden]) { display: flex; }
+    .kg-hit-group { display: flex; flex-direction: column; gap: 1px; }
+    .kg-hit-label { font-size: 11px; font-weight: 650; letter-spacing: 0.02em; text-transform: uppercase; color: var(--mute); padding: 4px 8px 2px; }
+    .kg-hits label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-sm); font-size: 12.5px; color: var(--ink); cursor: pointer; }
+    .kg-hits label:hover { background: var(--accent-soft); }
+    .kg-hits input { width: auto; }
+    .kg-facets { display: flex; flex-direction: column; gap: 8px; flex: 1 1 100%; min-width: 0; max-width: 100%; }
+    .kg-facet-group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+    .kg-facet-root { align-self: flex-start; border: 0; background: transparent; color: var(--mute); font: inherit; font-size: 11px; font-weight: 650; letter-spacing: 0.02em; text-transform: uppercase; padding: 0; }
+    .kg-facet-kids { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 22px; }
+    .kg-facet-chip { appearance: none; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); border-radius: 999px; padding: 2px 8px; font: inherit; font-size: 11px; line-height: 1.3; cursor: pointer; }
+    .kg-facet-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); font-weight: 650; }
+    .facet-select { position: relative; min-width: 148px; max-width: 240px; }
+    .facet-select-btn { width: 100%; justify-content: space-between; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .facet-select-pop { display: none; position: fixed; z-index: 95; max-height: 240px; overflow: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 6px; }
+    .facet-select-pop.open { display: flex; flex-direction: column; gap: 1px; }
+    .facet-select-pop label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: var(--r-sm); font-size: 12.5px; color: var(--ink); cursor: pointer; }
+    .facet-select-pop label:hover { background: var(--accent-soft); }
+    .facet-select-pop input { width: auto; }
+    .kg-check { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--mute); }
+    .kg-check input { width: auto; }
+    .kg-stage { display: grid; grid-template-columns: minmax(0, 1fr) minmax(240px, 320px); grid-template-rows: minmax(0, 1fr); gap: 0; flex: 1; min-height: 0; border: 1px solid var(--line); border-radius: var(--r-md); overflow: hidden; background: radial-gradient(circle, #e5e7eb 1px, transparent 1.5px) 0 0 / 18px 18px, #fafbfc; }
+    .kg-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+    .kg-zoom { position: absolute; right: 12px; bottom: 12px; display: flex; flex-direction: column; gap: 4px; z-index: 6; }
+    .kg-hops { position: absolute; top: 12px; right: 12px; z-index: 6; margin: 0; }
+    .kg-zoom-btn { width: 36px; height: 36px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; font-size: 20px; line-height: 1; cursor: pointer; color: var(--ink); box-shadow: 0 1px 4px rgba(15, 23, 42, 0.08); display: inline-flex; align-items: center; justify-content: center; padding: 0; }
+    .kg-zoom-btn.wide { width: auto; min-width: 36px; padding: 0 8px; font-size: 11px; font-weight: 650; }
+    .kg-zoom-btn svg { display: block; }
+    .kg-plane-opts { display: none; flex-direction: column; gap: 4px; }
+    .kg-plane-opts.open { display: flex; }
+    .kg-zoom-btn:hover { background: var(--surface-2); }
+    .kg-zoom-btn.solid { border-color: var(--ink); }
+    #kg-svg { width: 100%; height: 100%; min-height: 0; display: block; touch-action: none; }
+    .kg-side { background: var(--surface); border-left: 1px solid var(--line); padding: 16px 16px 18px; min-height: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; font-size: 13px; }
+    .kg-side h3 { margin: 4px 0 6px; font-size: 18px; letter-spacing: -0.02em; }
+    .kg-side-id { font-family: var(--mono); font-size: 12px; color: var(--mute); }
+    .kg-side-empty { color: var(--mute); padding: 24px 8px; position: relative; }
+    .kg-look { background: var(--surface-2); border-radius: var(--r-sm); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+    .kg-look textarea { width: 100%; min-height: 64px; resize: vertical; font: inherit; }
+    .kg-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 10px 0; }
+    .kg-cols > div { display: flex; flex-direction: column; gap: 4px; }
+    .kg-cols [data-nb] > b { cursor: pointer; }
+    .kg-hop { appearance: none; border: 1px solid var(--line); background: var(--surface-2); border-radius: 8px; padding: 4px 8px; text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+    .kg-hop:hover { border-color: var(--accent); background: var(--accent-soft); }
+    .kg-pic { max-width: 100%; max-height: 140px; border-radius: var(--r-sm); border: 1px solid var(--line); margin: 10px 0; display: block; cursor: zoom-in; }
+    .kg-node-tip { position: fixed; z-index: 250; min-width: 148px; max-width: 240px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 8px 10px; }
+    .kg-tip-more { appearance: none; width: 100%; border: 1px solid var(--accent); background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 5px 10px; font: inherit; font-size: 12px; font-weight: 650; cursor: pointer; }
+    .kg-tip-more.on { box-shadow: inset 0 0 0 1px var(--accent); }
+    .kg-tip-hint { font-size: 11px; margin-top: 6px; }
+    .kg-tip-body { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; font-size: 12px; }
+    .kg-tip-name { font-weight: 650; }
+    .kg-tip-set { display: flex; align-items: center; gap: 6px; }
+    .kg-tip-set .dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+    .kg-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 10px; color: var(--mute); font-size: 12px; }
+    .kg-node { cursor: pointer; transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1); }
+    .kg-nodes.kg-no-anim .kg-node { transition: none; }
+    .kg-node .kg-hit { fill: transparent; pointer-events: all; }
+    .kg-node .kg-id { font-family: var(--mono); font-size: 10px; font-weight: 700; fill: #0f172a; pointer-events: none; }
+    .kg-node .kg-name { font-size: 11px; font-weight: 650; fill: var(--ink); pointer-events: none; }
+    .kg-node .kg-skills { font-size: 10px; fill: var(--mute); pointer-events: none; }
+    .kg-node .kg-disc { stroke: #fff; stroke-width: 2.5; }
+    .kg-node.kg-focus .kg-disc { stroke: var(--accent); stroke-width: 3.5; }
+    .kg-node.picked .kg-disc { stroke: #f59e0b; stroke-width: 3.5; }
+    .kg-node.picked .kg-id { fill: #b45309; }
+    .kg-select-bar { display: none; position: fixed; z-index: 240; width: min(340px, calc(100vw - 24px)); flex-direction: column; align-items: stretch; gap: 8px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 12px; text-align: left; cursor: grab; touch-action: none; }
+    .kg-select-bar.kg-dragging { cursor: grabbing; }
+    .kg-select-bar button, .kg-select-bar label { cursor: pointer; }
+    .kg-select-bar input[type="text"] { cursor: text; }
+    .kg-select-bar:not([hidden]) { display: flex; }
+    .kg-select-panel-set input { flex: 1; min-width: 140px; }
+    .kg-select-tabs { display: flex; gap: 6px; }
+    .kg-select-drag { height: 12px; margin: -4px -4px 2px; border-radius: 4px; background: color-mix(in srgb, var(--mute) 28%, transparent); cursor: grab; flex: 0 0 auto; }
+    .kg-select-tabs .btn { flex: 1; justify-content: flex-start; }
+    .kg-select-panel-set { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .kg-select-picks { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow: auto; align-items: stretch; }
+    .kg-select-pick { display: flex; align-items: center; gap: 6px; }
+    .kg-select-pick .kg-select-drop { flex: 0 0 auto; padding: 2px 7px; min-width: 0; }
+    .kg-select-pick .kg-select-name { flex: 1; min-width: 0; justify-content: flex-start; text-align: left; border: 0; background: transparent; padding: 4px 6px; border-radius: var(--r-sm); font-size: 12.5px; }
+    .kg-select-pick .kg-select-name:hover { background: var(--accent-soft); }
+    #kg-select-sources { display: flex; flex-direction: column; gap: 2px; max-height: 160px; overflow: auto; align-items: stretch; }
+    #kg-select-sources label { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 6px 8px; border-radius: var(--r-sm); font-size: 12.5px; cursor: pointer; text-align: left; width: 100%; }
+    #kg-select-sources label:hover { background: var(--accent-soft); }
+    #kg-select-sources input { appearance: auto; flex: 0 0 auto; width: 16px; height: 16px; min-width: 16px; padding: 0; box-shadow: none; }
+    #kg-select-draw-from { width: 100%; justify-content: flex-start; margin-top: 8px; }
+    .kg-draft .kg-floor-hull { fill: none; stroke: #f59e0b; stroke-width: 2.5; stroke-dasharray: 8 6; }
+    .kg-set-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+    .kg-set-chip-wrap { display: inline-flex; align-items: stretch; border-radius: 999px; overflow: hidden; }
+    .kg-set-chip { appearance: none; border: 1px solid color-mix(in srgb, var(--set-c, var(--accent)) 50%, var(--line)); background: color-mix(in srgb, var(--set-c, var(--accent)) 16%, var(--surface)); color: var(--ink); border-radius: 999px; padding: 3px 10px; font: inherit; font-size: 12px; cursor: pointer; }
+    .kg-set-chip-wrap .kg-set-chip { border-radius: 999px 0 0 999px; border-right: none; }
+    .kg-set-x { appearance: none; border: 1px solid color-mix(in srgb, var(--set-c, var(--accent)) 50%, var(--line)); background: color-mix(in srgb, var(--set-c, var(--accent)) 16%, var(--surface)); color: var(--mute); padding: 0 7px; font: inherit; font-size: 13px; line-height: 1; cursor: pointer; border-radius: 0 999px 999px 0; }
+    .kg-set-x:hover { color: var(--ink); background: color-mix(in srgb, var(--set-c, var(--accent)) 28%, var(--surface)); }
+    .kg-set-chip.on { box-shadow: inset 0 0 0 2px var(--set-c, var(--accent)); font-weight: 650; }
+    .kg-set-member { display: flex; gap: 6px; align-items: center; margin: 4px 0; }
+    .kg-set-member .kg-hop { flex: 1; }
+    .kg-hull { pointer-events: none; }
+    .kg-side-head { position: relative; padding-right: 76px; }
+    .kg-hist { position: absolute; top: 0; right: 0; display: flex; gap: 4px; }
+    .kg-hist-btn { width: 28px; height: 28px; border: 1px solid var(--line); background: var(--surface); border-radius: 8px; font-size: 14px; line-height: 1; cursor: pointer; color: var(--ink); padding: 0; }
+    .kg-hist-btn:disabled { opacity: 0.35; cursor: default; }
+    .kg-floors .kg-floor-hull { pointer-events: auto; }
+    .kg-floor-conn { pointer-events: none; }
+    .tl-col.drop-target { outline: 2px dashed var(--accent); background: var(--accent-soft); }
+    .tl-cell.drop-target { outline: 2px dashed var(--accent); background: var(--accent-soft); }
+    .tl-act.drop-target { outline: 2px dashed var(--accent); background: var(--accent-soft); }
+    .tl-act[draggable="true"] { cursor: grab; }
+    .tl-act.dragging { opacity: 0.45; }
+    .set-add-rows { max-height: 280px; overflow: auto; display: flex; flex-direction: column; gap: 6px; margin: 8px 0; }
+    .set-add-row { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; }
+    .set-add-row input { width: auto; margin-top: 3px; }
+    .set-add-row.already { opacity: 0.55; }
+    .kg-node.dim, .kg-node.facet-dim { opacity: 0.15; }
+
+    .kg-stage.has-pending { grid-template-columns: minmax(0, 1fr) minmax(200px, 260px) minmax(240px, 300px); }
+    #kg-pending { display: flex; flex-direction: column; min-height: 0; background: var(--surface); border-left: 1px solid var(--line); font-size: 13px; }
+    #kg-pending[hidden] { display: none !important; }
+    .kg-pending-scroll { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 10px 10px 0; }
+    .kg-pending-h { margin: 8px 0 6px; font-size: 12px; font-weight: 650; }
+    .kg-pending-card { display: flex; gap: 8px; align-items: flex-start; border: 1px solid var(--line); border-radius: var(--r-sm); padding: 8px; margin: 0 0 8px; background: var(--surface-2); }
+    .kg-pending-card.discarded { opacity: 0.45; filter: grayscale(1); }
+    .kg-pending-card.hot { outline: 2px solid #2563eb; }
+    .kg-pending-acts { display: flex; flex-direction: column; gap: 4px; }
+    .kg-pending-acts .btn { width: 28px; height: 28px; min-width: 28px; padding: 0; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; line-height: 0; }
+    .kg-pending-acts .btn svg { width: 14px; height: 14px; display: block; }
+    .kg-pending-name { font-weight: 650; }
+    .kg-pending-meta { color: var(--mute); font-size: 12px; }
+    .kg-pending-foot { position: sticky; bottom: 0; display: flex; flex-direction: column; gap: 8px; padding: 10px; background: var(--surface); border-top: 1px solid var(--line); }
+    .kg-pending-ticks { display: flex; gap: 12px; }
+    .kg-stage.has-pending .kg-node:not(.pending) { opacity: 0.14; }
+    .kg-stage.has-pending .kg-edge:not(.pending) { opacity: 0.1; }
+    .kg-stage.has-pending .kg-node.pending,
+    .kg-stage.has-pending .kg-edge.pending { opacity: 1; }
+    .kg-node.pending .kg-disc { fill: none; stroke: #111827; stroke-width: 2px; stroke-dasharray: 5 3.5; }
+    .kg-node.kg-hot .kg-disc { stroke: #2563eb; stroke-width: 3px; }
+    .kg-edge.pending { stroke-dasharray: 8 5; stroke-opacity: 1; stroke-width: 2.5px; }
+    .kg-edge.kg-hot { stroke-width: 3.5; stroke-opacity: 1; }
+    .kg-edge { fill: none; stroke-linecap: round; stroke-opacity: 0.3; pointer-events: none; }
+    .kg-edge-hit { fill: none; stroke: #111; stroke-opacity: 0.02; stroke-width: 18; pointer-events: stroke; }
+    .kg-edge.tier-related { stroke-width: 2; }
+    .kg-leap { font-variant-numeric: tabular-nums; font-weight: 700; margin-left: 6px; }
+    .kg-edge.bright { stroke-opacity: 1; opacity: 1; }
+    .kg-edge.dim { opacity: 0.05; stroke-opacity: 1; }
+    .kg-edge.dim.k-related, .kg-edge.dim.tier-related { opacity: 0.03; }
+    .kg-node.dim .kg-name, .kg-node.dim .kg-skills, .kg-node.dim .kg-id, .kg-node.dim .kg-dots { display: none; }
+    .kg-node.parked .kg-name, .kg-node.parked .kg-skills, .kg-node.parked .kg-id { display: none; }
+    .kg-node.parked { opacity: 0.35; }
+    .kg-node .kg-dots circle { fill: #0f172a; }
+    .kg-edge.tier-tag { stroke-width: 1.5; stroke-dasharray: 4 3; }
+    .kg-edge.chain-hide { display: none; }
+    .kg-floor-lab { font-size: 11px; font-weight: 650; fill: var(--ink); pointer-events: none; }
+    .kg-floor { transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1), opacity 420ms ease; }
+    .kg-floors.kg-no-anim .kg-floor { transition: none; }
+    .kg-floor-copy { pointer-events: all; }
+    .kg-pivot { pointer-events: none; }
+    .kg-pivot-dot { fill: #0f172a; stroke: #fff; stroke-width: 2; }
+    #kg-svg.kg-angle-armed { cursor: grab; }
+    #kg-svg.kg-angle-dragging { cursor: grabbing; }
+    .kg-angle-hint { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; background: color-mix(in srgb, var(--surface) 92%, transparent); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 12px; font-size: 13px; font-weight: 650; pointer-events: none; }
+    #kg-angle { padding: 0; }
+    .kg-hop-tag { font-size: 11px; margin: 0 0 6px 4px; }
+    .kg-suggested-break { font-size: 11px; margin: 8px 0 4px; letter-spacing: 0.02em; }
+    .kg-mention { appearance: none; border: 0; background: var(--accent-soft); color: var(--ink); border-radius: 999px; padding: 1px 8px; font: inherit; font-size: 12px; cursor: pointer; }
+    .kg-set-note-preview { font-size: 12px; margin-top: 6px; }
+    .kg-mention-pop { position: absolute; z-index: 260; left: 0; top: 100%; min-width: 240px; max-height: 280px; overflow: auto; display: flex; flex-direction: column; gap: 4px; padding: 6px; }
+    .kg-mention-pop .btn { text-align: left; }
+    .he-cell { min-width: 180px; }
+    .he-path { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12px; line-height: 1.35; margin: 0 0 4px; }
+    .he-path [data-set] { cursor: help; border-bottom: 1px dotted var(--line-strong); }
+    .he-sort-drag { flex: 0 0 auto; width: 10px; height: 16px; border-radius: 3px; background: color-mix(in srgb, var(--mute) 32%, transparent); cursor: grab; touch-action: none; }
+    .he-sort-drag:active { cursor: grabbing; }
+    .he-path.he-drop { outline: 1px dashed var(--accent); background: var(--accent-soft); border-radius: 6px; }
+    .he-x { appearance: none; flex: 0 0 auto; width: 20px; height: 20px; padding: 0; border: 1px solid var(--line); background: var(--surface-2); color: var(--ink-2); border-radius: 6px; font: inherit; font-size: 14px; line-height: 1; cursor: pointer; }
+    .he-x:hover { border-color: var(--danger); color: var(--danger); background: var(--danger-soft); }
+    .he-add-select { max-width: 100%; }
+    .kg-edge.k-progression { stroke: var(--progress); }
+    .kg-edge.k-regression { stroke: var(--regress); }
+    .kg-edge.k-related { stroke: var(--related); }
+    .kg-edge.k-tag { stroke: var(--tag); }
+    .kg-elabel { font-size: 10px; fill: var(--ink-2); text-anchor: middle; pointer-events: none; }
+    .kg-pop { position: fixed; z-index: 240; width: min(340px, calc(100vw - 24px)); background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: var(--shadow-lg); padding: 12px; }
+    .kg-pop h4 { margin: 0 0 8px; font-size: 13px; }
+    .kg-edge-row { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+    .kg-edge-row .kg-leap { color: var(--ink); }
+    @media (max-width: 1100px) { .forms { grid-template-columns: 1fr; } .kg-stage { grid-template-columns: 1fr; } .kg-side { border-left: 0; border-top: 1px solid var(--line); max-height: 280px; } }
+    @media (max-width: 900px) {
+      .shell { padding: 14px; }
+      header p { display: none; }
+    }
+  </style>
+</head>
+<body class="view-graph">
+  <header>
+    <h1>FLAG material graph</h1>
+    <p>Select a node · hops stay bright · second click draws a kind</p>
+    <div class="view-toggle" id="view-toggle">
+      <button class="btn on" type="button" data-view="graph">Graph</button>
+      <button class="btn" type="button" data-view="hyperedges">Settings</button>
+      <button class="btn" type="button" data-view="table">Table</button>
+    </div>
+    <span class="status" id="status">local storage</span>
+  </header>
+
+  <div class="shell">
+
+    <!-- ================================================================
+         PANEL 1 — UNIT FOCI
+         API: GET /api/foci  → { items:[{n, text}], now:n }
+              PUT /api/foci  ← same shape
+         STORE: library/_foci.yaml
+         UI:  click a chip = set "now"; ✕ = remove; input + Enter = add.
+         ================================================================ -->
+    <section class="foci">
+      <div class="label">Unit foci — teacher writes these first (LLM does not invent the arc). Click one to mark it as the current focus.</div>
+      <div class="foci-row" id="foci-row">
+        <!-- rendered by renderFoci() -->
+        <input id="focus-new" type="text" placeholder="+ focus, press Enter" />
+      </div>
+    </section>
+
+    <section class="kg" id="kg">
+      <div class="kg-toolbar">
+        <input id="kg-search" type="search" placeholder="Search activities (name, cue, notes)…" />
+        <div id="kg-facets" class="kg-facets"></div>
+        <label class="kg-check"><input type="checkbox" id="kg-unlinked" /> Show unlinked</label>
+        <div id="kg-hits" class="kg-hits" hidden></div>
+        <div id="kg-select-bar" class="kg-select-bar kg-pop" hidden>
+          <div class="kg-select-drag" title="Drag to move"></div>
+          <div class="kg-select-tabs">
+            <button type="button" class="btn on" id="kg-select-tab-set">Create an activity set</button>
+            <button type="button" class="btn" id="kg-select-tab-link">Create a new link</button>
+          </div>
+          <div id="kg-select-picks" class="kg-select-picks"></div>
+          <div id="kg-select-panel-set" class="kg-select-panel-set">
+            <span id="kg-select-count">0 selected</span>
+            <input id="kg-select-name" type="text" placeholder="Activity set name" />
+            <button class="btn solid" type="button" id="kg-select-make">Make activity set</button>
+          </div>
+          <div id="kg-select-panel-link" hidden>
+            <div id="kg-select-sources"></div>
+            <button type="button" class="btn solid" id="kg-select-draw-from">Draw connection from here</button>
+          </div>
+          <div class="form-actions">
+            <button class="btn" type="button" id="kg-select-clear">Clear</button>
+            <button class="btn" type="button" id="kg-select-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+      <div class="kg-stage">
+        <div class="kg-canvas">
+          <svg id="kg-svg" aria-label="Material knowledge graph"></svg>
+          <label class="when kg-hops" title="How many hops from the selected node stay bright">
+            hops
+            <input type="number" min="1" max="1" step="1" class="when-mins" id="kg-hops" value="1" title="Hops to keep bright (1–max on this graph)" />
+          </label>
+          <div class="kg-zoom" role="group" aria-label="Zoom">
+            <button class="kg-zoom-btn" type="button" id="kg-layout-layers" title="Layers" aria-label="Layers">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round">
+                <polygon points="4,19 12,23 20,19 12,15"/>
+                <polygon points="4,13 12,17 20,13 12,9"/>
+                <polygon points="4,7 12,11 20,7 12,3"/>
+              </svg>
+            </button>
+            <button class="kg-zoom-btn" type="button" id="kg-angle" hidden title="yaw 90° · tilt 45°" aria-label="Angle">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 4v16h16"/>
+                <path d="M5 12.5a8 8 0 0 1 8 8" stroke-width="1.5"/>
+              </svg>
+            </button>
+            <div id="kg-plane-opts" class="kg-plane-opts" hidden>
+              <button class="kg-zoom-btn" type="button" id="kg-plane-one" title="One plane — chosen sets share one floor" aria-label="One plane">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round">
+                  <polygon points="3,15 9,21 21,16 15,10"/>
+                </svg>
+              </button>
+              <button class="kg-zoom-btn" type="button" id="kg-plane-each" title="Respective — each chosen set on its own floor" aria-label="Respective planes">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">
+                  <polygon points="4,19 12,23 20,19 12,15" stroke-dasharray="2.2 1.6"/>
+                  <polygon points="4,13 12,17 20,13 12,9" stroke-dasharray="2.2 1.6"/>
+                  <polygon points="4,7 12,11 20,7 12,3"/>
+                </svg>
+              </button>
+            </div>
+            <button class="kg-zoom-btn" type="button" id="kg-zoom-in" title="Zoom in" aria-label="Zoom in">+</button>
+            <button class="kg-zoom-btn" type="button" id="kg-zoom-out" title="Zoom out" aria-label="Zoom out">−</button>
+            <button class="kg-zoom-btn" type="button" id="kg-zoom-fit" title="Fit all" aria-label="Fit all">⤢</button>
+            <button class="kg-zoom-btn" type="button" id="kg-spread" hidden title="Spread on planes — keep neighbours, stop overlaps" aria-label="Spread on planes">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="currentColor">
+                <circle cx="7" cy="7" r="2.2"/>
+                <circle cx="17" cy="7" r="2.2"/>
+                <circle cx="7" cy="17" r="2.2"/>
+                <circle cx="17" cy="17" r="2.2"/>
+              </svg>
+            </button>
+          </div>
+          <div id="kg-angle-hint" class="kg-angle-hint" hidden>Right-click sets the centre. Left-drag changes the angle.</div>
+          <div id="kg-node-tip" class="kg-node-tip" hidden></div>
+        </div>
+        <aside class="kg-side" id="kg-side"></aside>
+        <aside id="kg-pending" hidden></aside>
+      </div>
+      <div class="kg-legend">
+        <span><i class="dot d-pro"></i>Progression (harder that way)</span>
+        <span><i class="dot d-rel"></i>Related</span>
+        <span class="mute">Ghost springs (shared set / cluster) are layout-only — not hops.</span>
+        <span class="mute">Hover a card for More info (hops and sets). Dots stay off until you click.</span>
+      </div>
+    </section>
+
+
+    <section class="hyperedges" id="hyperedges">
+      <div class="db-head">
+        <div>
+          <h2>Settings</h2>
+          <p>Skills and activity sets, then which grades have class and on which dates.</p>
+        </div>
+      </div>
+      <div class="he-block">
+        <div class="label">Skills and activity sets</div>
+        <p class="mute" style="margin:0 0 10px">A node is an activity. A skill (throwing, reading) is the first level. An activity set (warm-up) sits under a skill and groups activities. Independent activity sets have no parent skill yet. Create a skill to show it on Graph facets.</p>
+      </div>
+      <div class="he-toolbar">
+        <input id="he-search" type="search" placeholder="Search skills and activity sets…" />
+      </div>
+      <div class="he-block">
+        <div class="label">Independent activity sets</div>
+        <div id="he-independent" class="he-list" data-he-drop-parent="independent"></div>
+      </div>
+      <div class="he-block">
+        <div class="label">Skills</div>
+        <div id="he-first" class="he-list"></div>
+      </div>
+      <div class="he-create-row">
+        <input id="he-new-name" type="text" placeholder="Skill name" />
+        <button class="btn solid" type="button" id="he-create">Create skill</button>
+      </div>
+      <div class="he-block" id="settings-dates">
+        <div class="label">Grade and dates</div>
+        <p class="mute" style="margin:0 0 10px">Add or remove a grade. Tick the weekdays that grade has class. Paint work days and school activities on the calendar to drop holidays and breaks. The month schedule only shows lesson names.</p>
+        <div class="tl-arrange-grade">
+          <b>Calendar</b>
+          <select id="he-grade"></select>
+        </div>
+        <div id="settings-arrange-body"></div>
+        <div class="he-create-row">
+          <input id="he-new-grade" type="text" placeholder="G8" maxlength="8" />
+          <button class="btn solid" type="button" id="he-add-grade">Add grade</button>
+        </div>
+        <div class="calendar" id="settings-calendar">
+          <div class="cal-toolbar">
+            <div class="cal-modes" role="radiogroup" aria-label="Calendar mode">
+              <button class="btn on" type="button" data-cal-mode="navigate">Navigate</button>
+              <button class="btn" type="button" data-cal-mode="focus">Focus</button>
+              <button class="btn" type="button" data-cal-mode="workday">Work day</button>
+              <button class="btn" type="button" data-cal-mode="schoolActivity">School activity</button>
+            </div>
+            <div class="cal-month-nav">
+              <button class="btn" type="button" data-cal-nav="prev" aria-label="Previous month">‹</button>
+              <strong class="cal-title">September 2026</strong>
+              <button class="btn" type="button" data-cal-nav="next" aria-label="Next month">›</button>
+              <button class="btn" type="button" data-cal-nav="today">Today</button>
+            </div>
+          </div>
+          <div class="cal-palette"></div>
+          <p class="cal-error" hidden></p>
+          <div class="cal-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+          <div class="cal-grid"></div>
+          <div class="cal-editor"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         PANEL 5 — TIMELINE (temporal view; this variant only)
+         API: GET /api/periods?grade=G6 → Period[] sorted by date   (api.listPeriods)
+         STORE: read-only over library/periods/*-<grade>.md
+         UI:  one column per saved period, lanes Instant / Skill / Key, step badge between
+              consecutive columns from hopKind(); each lane shows clock range from Period.times[slot];
+              click a date → loadPeriod(); dashed ghost column = next planned date (click to open it).
+              Each lane card INLINES easier / harder / alternatives (timelineHoverGroups + appendTimelineHops)
+              as three chip columns (Easier | Harder | Also). Click a hop chip → pin that node into this
+              period's slot. Hover a chip → node drawer floats (#drawer.float).
+              Grade follows #p-grade. Rendered by renderTimeline() (try/catch → .tl-empty message on error).
+              Geometry: .tl-col 680px, .tl-cell ≥120px — see head comment.
+              Layout: grid area "tl" left of PIN; PIN's grid area spans timeline + library + LLM
+              so scrolling the page does not drag the pin away with the timeline.
+              Phone (≤900px): timeline, then pin, then library.
+         ================================================================ -->
+    <section class="timeline" id="timeline">
+      <div class="tl-head">
+        <div>
+          <h2>Schedule</h2>
+          <p>Every saved period for <b id="tl-grade">G6</b>, oldest to newest. Month view shows each day’s Instant / Skill / Key names, plus unit foci and school labels.</p>
+          <div class="sched-tabs" role="tablist" aria-label="Schedule views">
+            <div class="sched-split">
+              <button class="btn on" type="button" role="tab" id="tab-timeline" aria-selected="true" aria-controls="tl-panel">Timeline</button>
+              <button class="btn" type="button" id="tl-mode" aria-pressed="false" title="Display plan" aria-label="Display plan">
+                <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+              </button>
+            </div>
+            <button class="btn" type="button" role="tab" id="tab-month" aria-selected="false" aria-controls="calendar">Month</button>
+          </div>
+        </div>
+        <div class="period-bar">
+          <input id="p-date" type="date" />
+          <select id="p-grade"></select>
+          <span class="mute" id="p-key"></span>
+        </div>
+        <div class="tl-stats" id="tl-stats"></div>
+      </div>
+      <div id="tl-panel" role="tabpanel" aria-labelledby="tab-timeline">
+        <div class="tl-scroll">
+          <div class="tl-grid" id="tl-grid"><!-- rendered by renderTimeline() --></div>
+        </div>
+        <div class="tl-scroll-split" data-tl-scroll-split role="separator" aria-orientation="horizontal" aria-label="Drag to extend timeline" title="Drag to extend timeline"></div>
+        <div class="tl-legend">
+          <span><i class="tl-step repeat">=</i>repeat</span>
+          <span><i class="tl-step harder">→</i>harder (progression)</span>
+          <span><i class="tl-step easier">←</i>easier (regression)</span>
+          <span><i class="tl-step sideways">~</i>sideways (related / tag)</span>
+          <span><i class="tl-step jump">✕</i>jump — no link between the two nodes; consider adding one</span>
+        </div>
+      </div>
+      <div class="calendar cal-readonly" id="calendar" role="tabpanel" aria-labelledby="tab-month" hidden>
+        <div class="cal-toolbar">
+          <div class="cal-modes" role="radiogroup" aria-label="Calendar mode">
+            <button class="btn on" type="button" data-cal-mode="navigate">Navigate</button>
+            <button class="btn" type="button" data-cal-mode="focus">Focus</button>
+            <button class="btn" type="button" data-cal-mode="workday">Work day</button>
+            <button class="btn" type="button" data-cal-mode="schoolActivity">School activity</button>
+          </div>
+          <div class="cal-month-nav">
+            <button class="btn" type="button" id="cal-prev" data-cal-nav="prev" aria-label="Previous month">‹</button>
+            <strong id="cal-title" class="cal-title">September 2026</strong>
+            <button class="btn" type="button" id="cal-next" data-cal-nav="next" aria-label="Next month">›</button>
+            <button class="btn" type="button" id="cal-today" data-cal-nav="today">Today</button>
+          </div>
+        </div>
+        <div class="cal-palette" id="cal-palette"></div>
+        <p class="cal-error" id="cal-error" hidden></p>
+        <div class="cal-weekdays" aria-hidden="true"><span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span></div>
+        <div class="cal-grid" id="cal-grid"></div>
+        <div class="cal-editor" id="cal-editor"></div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         PANEL 2 — MATERIAL LIBRARY (the graph as tables)
+         API: GET/POST/PATCH/DELETE /api/materials, GET/POST/PATCH/DELETE /api/links
+         STORE: library/materials/*.md
+         ================================================================ -->
+    <section class="graph-wrap" id="library">
+      <div class="db-head">
+        <div>
+          <h2>Material library</h2>
+          <p>Click a cell to edit. Click an ID to open the node drawer (neighbours, notes, sketch).</p>
+        </div>
+        <div style="display:flex;gap:8px;flex-shrink:0">
+          <!-- UI: filter both tables by text; no API -->
+          <input id="filter" type="search" placeholder="Filter materials and links…" style="width:220px" />
+          <!-- API: GET /api/export  (optional) — zip of library/ ; template just downloads JSON -->
+          <button class="btn" type="button" id="export">export JSON</button>
+        </div>
+      </div>
+
+
+      <!-- API: GET /api/materials → Material[]; inline edits → PATCH /api/materials/:id {field:value}; Remove → DELETE -->
+      <p id="add-pick-hint" hidden>
+        <span id="add-pick-text"></span>
+        <button class="btn solid" type="button" id="back-to-tl">Back to timeline</button>
+      </p>
+      <table class="db" id="materials-table">
+        <caption id="mat-caption">Materials</caption>
+        <thead><tr><th>ID</th><th><div class="th-name-row"><span>Name</span><input id="name-q" class="th-search" type="search" placeholder="Search name, cue, notes…" /></div></th><th>Est. min</th><th><select id="mat-text-col" class="cell" aria-label="Column text"><option value="look">What to look for</option><option value="notes">Explanation</option></select></th><th>
+          <div class="th-he-col">
+            <span>Skill / activity set</span>
+            <div id="mat-set-filter" class="facet-select"></div>
+          </div>
+        </th><th>Picture</th><th>Pin</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <!-- API: GET /api/links → Link[]; note edit → PATCH /api/links/:from/:kind/:to {note}; Remove → DELETE same path -->
+      <table class="db" id="links-table">
+        <caption id="link-caption">Links</caption>
+        <thead><tr><th>From</th><th>Kind of link</th><th>To</th><th>Teacher note / tag</th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+
+      <div class="legend">
+        <span><i class="dot d-reg"></i>Regression</span>
+        <span><i class="dot d-pro"></i>Progression</span>
+        <span><i class="dot d-rel"></i>Related (with tag)</span>
+      </div>
+
+      <!-- NODE DRAWER — opened by clicking an ID.
+           API: material body (markdown below frontmatter) comes with GET /api/materials as `notes`;
+                editing notes → PATCH /api/materials/:id {notes}.
+           Sketch: `sketch` field or first media path in notes → <img src="/assets/library/media_library/flag%20football/…"> -->
+      <div class="drawer" id="drawer">
+        <div class="drawer-main">
+          <span class="field-with-polish">
+            <h3 id="dr-title">—</h3>
+            <button class="btn" type="button" id="dr-name-polish" title="Make this title shorter and clearer">Polish</button>
+          </span>
+          <div class="nb" id="dr-neighbors"></div>
+          <div class="pic-attach" id="dr-pic">
+            <div class="pic-head"><span>Picture</span><span class="mute" id="dr-pic-name">No picture</span></div>
+            <img id="dr-img" alt="" hidden />
+            <div class="pic-empty" id="dr-pic-empty">No picture yet. Replace to choose a sketch.</div>
+            <div class="pic-actions">
+              <button class="btn" type="button" id="dr-pic-replace">Replace</button>
+              <button class="btn" type="button" id="dr-pic-clear">Remove</button>
+            </div>
+          </div>
+          <label class="mute" style="font-size:11px"><span class="mat-text-lab">What to look for</span>
+            <span class="field-with-polish">
+              <textarea id="dr-look" placeholder="Cue or setup" data-field="look"></textarea>
+              <button class="btn" type="button" id="dr-look-polish" title="Make this cue shorter and clearer">Polish</button>
+            </span>
+          </label>
+          <label class="mute" style="font-size:11px"><span class="mat-text-lab">Explanation</span>
+            <span class="field-with-polish">
+              <textarea id="dr-notes" placeholder="How the drill is done. Type @ then a similar drill (name or description), then Polish." data-field="notes"></textarea>
+              <button class="btn" type="button" id="dr-notes-polish" title="Make this explanation shorter and clearer">Polish</button>
+            </span>
+          </label>
+          <details class="class-notes-acc" id="dr-class-notes-wrap">
+            <summary>Class notes</summary>
+            <div id="dr-class-notes"></div>
+            <div class="class-notes-add">
+              <input id="dr-cn-date" type="date" />
+              <select id="dr-cn-grade"></select>
+              <button class="btn" type="button" id="dr-cn-add">Add</button>
+            </div>
+          </details>
+          <div class="form-actions">
+            <button class="btn solid" type="button" id="dr-save">Save</button>
+            <button class="btn" type="button" id="dr-close">Close</button>
+          </div>
+        </div>
+        <button class="ov-resize" type="button" data-ov-resize title="Resize hover panels (shared)"></button>
+      </div>
+      <div class="drawer float" id="peek-drawer" hidden>
+        <div class="drawer-main">
+          <div class="peek-top" id="peek-top">
+            <button class="peek-back" type="button" id="peek-back" title="Back" aria-label="Back">←</button>
+            <span class="hop-fly-drag" id="peek-drag" title="Move panel"></span>
+            <span class="field-with-polish">
+              <h3 id="peek-title">—</h3>
+              <button class="btn" type="button" id="peek-name-polish" title="Make this title shorter and clearer">Polish</button>
+            </span>
+          </div>
+          <div class="nb" id="peek-neighbors"></div>
+          <div class="pic-attach" id="peek-pic">
+            <div class="pic-head"><span>Picture</span><span class="mute" id="peek-pic-name">No picture</span></div>
+            <img id="peek-img" alt="" hidden />
+            <div class="pic-empty" id="peek-pic-empty">No picture.</div>
+          </div>
+          <label class="mute" style="font-size:11px"><span class="mat-text-lab">What to look for</span>
+            <span class="field-with-polish">
+              <textarea id="peek-look" placeholder="Cue or setup" data-field="look"></textarea>
+              <button class="btn" type="button" id="peek-look-polish" title="Make this cue shorter and clearer">Polish</button>
+            </span>
+          </label>
+          <label class="mute" style="font-size:11px"><span class="mat-text-lab">Explanation</span>
+            <span class="field-with-polish">
+              <textarea id="peek-notes" placeholder="How the drill is done. Type @ then a similar drill (name or description), then Polish." data-field="notes"></textarea>
+              <button class="btn" type="button" id="peek-notes-polish" title="Make this explanation shorter and clearer">Polish</button>
+            </span>
+          </label>
+          <details class="class-notes-acc" id="peek-class-notes-wrap">
+            <summary>Class notes</summary>
+            <div id="peek-class-notes"></div>
+            <div class="class-notes-add">
+              <input id="peek-cn-date" type="date" />
+              <select id="peek-cn-grade"></select>
+              <button class="btn" type="button" id="peek-cn-add">Add</button>
+            </div>
+          </details>
+          <div class="form-actions">
+            <button class="btn solid" type="button" id="peek-save">Save</button>
+            <button class="btn" type="button" id="peek-close">Close</button>
+          </div>
+        </div>
+        <button class="ov-resize" type="button" data-ov-resize title="Resize hover panels (shared)"></button>
+      </div>
+      <div class="pic-zoom" id="pic-zoom" hidden>
+        <img id="pic-zoom-img" alt="" />
+        <div class="pic-zoom-player" id="pic-zoom-player" hidden>
+          <video id="pic-zoom-vid" playsinline></video>
+          <input id="pic-zoom-seek" class="pic-zoom-seek" type="range" min="0" max="1000" value="0" step="1" aria-label="Play position" />
+        </div>
+      </div>
+    </section>
+
+    <!-- ================================================================
+         PANEL 4 — LLM WIRE-IN
+         Reflection:  saved inside the Period (PUT /api/periods/:id), then
+                      POST /api/reflect {periodId} → LLM ReflectOutput + Elo leap update.
+         Suggestion:  POST /api/suggest  body {periodId}
+                      server assembles: foci + all materials/links + this period's layout
+                      + this period's reflection (+ previous period pin for continuity),
+                      calls the OpenAI-compatible chat endpoint with a STATIC system prompt
+                      (rules + schema) and DYNAMIC user message (the four stores),
+                      validates that every returned id exists, returns:
+                      Suggestion = { focus:n, summary, picks:[{id,why,start?,end?}], reply?, ops?, ranked?, reads:{...counts} }
+         ================================================================ -->
+  </div>
+
+  <div id="dock-home" hidden></div>
+  <div id="tl-refl-dock" class="tl-refl-dock" hidden>
+    <div class="refl-top">
+      <span class="label">After class</span>
+      <strong id="refl-when" class="refl-when"></strong>
+    </div>
+    <div class="flags" id="flags">
+      <button class="btn" type="button" data-flag="too slow">too slow</button>
+      <button class="btn" type="button" data-flag="too fast">too fast</button>
+      <button class="btn" type="button" data-flag="too easy">too easy</button>
+      <button class="btn" type="button" data-flag="too hard">too hard</button>
+    </div>
+    <input id="refl-text" type="text" placeholder="What actually happened — name the material." />
+    <label class="label" for="next-goal">Next lesson's goal</label>
+    <textarea id="next-goal" placeholder="user's input:&#10;&#10;next period:"></textarea>
+    <div class="refl-actions">
+      <button class="btn solid" type="button" id="refl-save">Save</button>
+      <span class="mute" id="refl-saved"></span>
+    </div>
+  </div>
+  <div id="tl-obj-dock" class="tl-obj-dock" hidden>
+    <div class="obj-lab">Objective of the day</div>
+    <textarea id="tl-obj-text" placeholder="user's input:&#10;&#10;class content:"></textarea>
+    <div class="obj-row">
+      <button class="btn" type="button" id="tl-obj-sum">Summarize</button>
+      <span class="mute" id="tl-obj-status"></span>
+    </div>
+  </div>
+  <div id="tl-suggest-dock" class="tl-suggest-dock" hidden>
+    <div class="suggest-split">
+      <button class="btn solid" type="button" id="suggest">Suggest next</button>
+      <details id="suggest-menu">
+        <summary title="Suggest options">▾</summary>
+        <div class="suggest-opts">
+          <button class="btn" type="button" id="suggest-last">From last lesson</button>
+          <button class="btn" type="button" id="suggest-goal">From a typed goal</button>
+        </div>
+      </details>
+    </div>
+    <span id="suggest-status"></span>
+    <button class="btn solid" type="button" id="s-accept" hidden>accept on timeline</button>
+    <button class="btn" type="button" id="s-edit" hidden>edit into pin</button>
+    <button class="btn" type="button" id="s-hop" hidden>hop</button>
+  </div>
+
+  <div id="pic-chooser" class="pic-chooser" hidden>
+    <div class="pic-chooser-head">
+      <strong>Choose a picture</strong>
+      <button class="btn" type="button" id="pic-chooser-close">Close</button>
+    </div>
+    <label class="btn file-btn" style="margin-bottom:10px">From computer
+      <input id="dr-pic-file" type="file" accept="video/mp4,video/webm,video/quicktime,video/*,image/gif,image/png,image/jpeg,image/webp,.mp4,.m4v,.webm,.mov,.gif" />
+    </label>
+    <div class="pic-chooser-grid" id="pic-chooser-grid"></div>
+  </div>
+  <div id="hop-flyout" class="hop-flyout" hidden>
+    <div class="hop-flyout-top peek-top" id="hop-fly-top">
+      <button class="peek-back" type="button" id="hop-fly-back" title="Back" aria-label="Back">←</button>
+      <span class="hop-fly-drag" id="hop-fly-drag" title="Move panel"></span>
+    </div>
+    <div id="hop-flyout-body" class="hop-flyout-body"></div>
+    <button class="ov-resize" type="button" data-ov-resize title="Resize hover panels (shared)"></button>
+  </div>
+  <div id="kg-draw-pop" class="kg-pop" hidden>
+    <h4 class="kg-pop-title">Draw a connection</h4>
+    <input type="hidden" name="from" />
+    <input type="hidden" name="to" />
+    <label class="mute" style="font-size:11px">Kind of link
+      <select id="kg-draw-kind">
+        <option value="progression">Progression to (To is harder)</option>
+        <option value="regression">Regression of (From is easier than To)</option>
+        <option value="related">Related to</option>
+      </select>
+    </label>
+    <label class="mute" style="font-size:11px;margin-top:8px">Teacher note (required for Related)
+      <input id="kg-draw-note" type="text" placeholder="Why this hop" />
+    </label>
+    <div class="form-actions">
+      <button class="btn solid" type="button" id="kg-draw-ok">Save into frontmatter</button>
+      <button class="btn" type="button" id="kg-draw-cancel">Cancel</button>
+    </div>
+  </div>
+  <div id="kg-edge-pop" class="kg-pop" hidden>
+    <h4>Links on this pair</h4>
+    <div class="kg-edge-list"></div>
+    <div class="form-actions"><button class="btn" type="button" id="kg-edge-close">Close</button></div>
+  </div>
+  <div id="set-add-pop" class="kg-pop" hidden>
+    <h4 id="set-add-title">Add set</h4>
+    <div id="set-add-pick" class="kg-set-chips"></div>
+    <div id="set-add-rows" class="set-add-rows"></div>
+    <p id="set-add-foot" class="mute"></p>
+    <div class="form-actions">
+      <button class="btn solid" type="button" id="set-add-ok">Add</button>
+      <button class="btn" type="button" id="set-add-cancel">Cancel</button>
+    </div>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="/app.js?v=history-per-edit"></script>
+</body>
+</html>

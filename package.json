@@ -1,0 +1,44 @@
+{
+  "name": "lesson-library",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx scripts/dev.ts",
+    "build": "esbuild web/app.ts --bundle --outfile=web/app.js --format=iife",
+    "start": "node --import tsx --env-file=.env server/index.ts",
+    "mcp": "python3 mcp/server.py",
+    "seed": "tsx scripts/seed.ts",
+    "import-plan": "python3 scripts/import_class_plan.py",
+    "test:graph": "tsx scripts/graph-model.test.ts",
+    "test:gatne": "tsx scripts/gatne.test.ts",
+    "test:overlay-layout": "tsx scripts/overlay-layout.test.ts",
+    "test:graph-layout": "tsx scripts/graph-layout.test.ts",
+    "test:set-tree": "tsx scripts/set-tree.test.ts",
+    "test:taxonomy": "tsx scripts/taxonomy.test.ts",
+    "test:calendar-model": "tsx scripts/calendar-model.test.ts",
+    "test:calendar-store": "tsx scripts/calendar-store.test.ts",
+    "test:sets": "tsx scripts/sets.test.ts",
+    "test:embed": "tsx scripts/embed.test.ts",
+    "test:llm": "tsx scripts/llm.test.ts",
+    "test:services": "tsx scripts/services.test.ts",
+    "test:mcp-supervisor": "python3 scripts/mcp-supervisor.test.py"
+  },
+  "devDependencies": {
+    "@types/d3-drag": "^3.0.7",
+    "@types/d3-force": "^3.0.10",
+    "@types/d3-selection": "^3.0.11",
+    "@types/d3-zoom": "^3.0.8",
+    "@types/node": "^22.15.3",
+    "esbuild": "^0.25.4",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  },
+  "dependencies": {
+    "d3-drag": "^3.0.0",
+    "d3-force": "^3.0.0",
+    "d3-selection": "^3.0.0",
+    "d3-zoom": "^3.0.0",
+    "yaml": "^2.7.1"
+  }
+}
