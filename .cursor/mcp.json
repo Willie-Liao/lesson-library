@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "lesson-library": {
+      "command": "python3",
+      "args": ["scripts/mcp_supervisor.py"]
+    }
+  }
+}
+

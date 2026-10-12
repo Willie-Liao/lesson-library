@@ -1,0 +1,21 @@
+node_modules/
+.env
+web/app.js
+web/app.js.map
+.DS_Store
+library/_embeddings.json
+library/.chat-session/
+library/.history/
+library/media_library/**/*.mov
+
+# Local lesson data — start clean; use npm run seed for a tiny demo
+library/materials/*.md
+library/periods/*.md
+library/media_library/**/*
+!library/media_library/**/.gitkeep
+
+# Not part of the MCP distribution
+paper/
+Lesson Library.app/
+scripts/__pycache__/
+**/__pycache__/
