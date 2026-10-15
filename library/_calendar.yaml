@@ -1,0 +1,14 @@
+version: 1
+foci: []
+workdays: []
+schoolActivities: []
+entries: []
+classDays:
+  G6:
+    - 1
+    - 2
+    - 4
+  G7:
+    - 2
+    - 3
+    - 5
